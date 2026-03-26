@@ -216,6 +216,7 @@ type VerificationCode struct {
 	ExpiresAt pgtype.Timestamptz `json:"expires_at"`
 	Used      bool               `json:"used"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	Attempts  int32              `json:"attempts"`
 }
 
 type Workspace struct {

@@ -499,6 +499,56 @@ func TestVerifyCodeWrongCode(t *testing.T) {
 	}
 }
 
+func TestVerifyCodeBruteForceProtection(t *testing.T) {
+	const email = "bruteforce-test@multica.ai"
+	ctx := context.Background()
+
+	t.Cleanup(func() {
+		testPool.Exec(ctx, `DELETE FROM verification_code WHERE email = $1`, email)
+	})
+
+	// Send code
+	w := httptest.NewRecorder()
+	var buf bytes.Buffer
+	json.NewEncoder(&buf).Encode(map[string]string{"email": email})
+	req := httptest.NewRequest("POST", "/auth/send-code", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	testHandler.SendCode(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("SendCode: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Read actual code so we can try it after lockout
+	dbCode, err := testHandler.Queries.GetLatestVerificationCode(ctx, email)
+	if err != nil {
+		t.Fatalf("GetLatestVerificationCode: %v", err)
+	}
+
+	// Exhaust all 5 attempts with wrong codes
+	for i := 0; i < 5; i++ {
+		w = httptest.NewRecorder()
+		buf.Reset()
+		json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": "000000"})
+		req = httptest.NewRequest("POST", "/auth/verify-code", &buf)
+		req.Header.Set("Content-Type", "application/json")
+		testHandler.VerifyCode(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("attempt %d: expected 400, got %d", i+1, w.Code)
+		}
+	}
+
+	// Now even the correct code should be rejected (code is locked out)
+	w = httptest.NewRecorder()
+	buf.Reset()
+	json.NewEncoder(&buf).Encode(map[string]string{"email": email, "code": dbCode.Code})
+	req = httptest.NewRequest("POST", "/auth/verify-code", &buf)
+	req.Header.Set("Content-Type", "application/json")
+	testHandler.VerifyCode(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("after lockout: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
 func TestVerifyCodeCreatesWorkspace(t *testing.T) {
 	const email = "workspace-verify-test@multica.ai"
 	ctx := context.Background()

@@ -240,6 +240,9 @@ func (h *Handler) SendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Best-effort cleanup of expired codes
+	_ = h.Queries.DeleteExpiredVerificationCodes(r.Context())
+
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Verification code sent"})
 }
 
@@ -265,6 +268,7 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if subtle.ConstantTimeCompare([]byte(code), []byte(dbCode.Code)) != 1 {
+		_ = h.Queries.IncrementVerificationCodeAttempts(r.Context(), dbCode.ID)
 		writeError(w, http.StatusBadRequest, "invalid or expired code")
 		return
 	}

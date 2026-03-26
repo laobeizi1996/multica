@@ -21,6 +21,8 @@ if (typeof window !== "undefined") {
     localStorage.removeItem("multica_workspace_id");
     api.setToken(null);
     api.setWorkspaceId(null);
-    window.location.href = "/login";
+    if (window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
   });
 }
