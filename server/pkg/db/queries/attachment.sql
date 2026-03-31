@@ -22,5 +22,21 @@ SELECT * FROM attachment
 WHERE comment_id = ANY($1::uuid[])
 ORDER BY created_at ASC;
 
+-- name: ListAttachmentURLsByIssueOrComments :many
+SELECT a.url FROM attachment a
+WHERE a.issue_id = $1
+   OR a.comment_id IN (SELECT c.id FROM comment c WHERE c.issue_id = $1);
+
+-- name: ListAttachmentURLsByCommentID :many
+SELECT url FROM attachment
+WHERE comment_id = $1;
+
+-- name: LinkAttachmentsToComment :exec
+UPDATE attachment
+SET comment_id = $1
+WHERE issue_id = $2
+  AND comment_id IS NULL
+  AND id = ANY($3::uuid[]);
+
 -- name: DeleteAttachment :exec
 DELETE FROM attachment WHERE id = $1 AND workspace_id = $2;

@@ -101,6 +101,76 @@ func (q *Queries) GetAttachment(ctx context.Context, arg GetAttachmentParams) (A
 	return i, err
 }
 
+const linkAttachmentsToComment = `-- name: LinkAttachmentsToComment :exec
+UPDATE attachment
+SET comment_id = $1
+WHERE issue_id = $2
+  AND comment_id IS NULL
+  AND id = ANY($3::uuid[])
+`
+
+type LinkAttachmentsToCommentParams struct {
+	CommentID pgtype.UUID   `json:"comment_id"`
+	IssueID   pgtype.UUID   `json:"issue_id"`
+	Column3   []pgtype.UUID `json:"column_3"`
+}
+
+func (q *Queries) LinkAttachmentsToComment(ctx context.Context, arg LinkAttachmentsToCommentParams) error {
+	_, err := q.db.Exec(ctx, linkAttachmentsToComment, arg.CommentID, arg.IssueID, arg.Column3)
+	return err
+}
+
+const listAttachmentURLsByCommentID = `-- name: ListAttachmentURLsByCommentID :many
+SELECT url FROM attachment
+WHERE comment_id = $1
+`
+
+func (q *Queries) ListAttachmentURLsByCommentID(ctx context.Context, commentID pgtype.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, listAttachmentURLsByCommentID, commentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var url string
+		if err := rows.Scan(&url); err != nil {
+			return nil, err
+		}
+		items = append(items, url)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAttachmentURLsByIssueOrComments = `-- name: ListAttachmentURLsByIssueOrComments :many
+SELECT a.url FROM attachment a
+WHERE a.issue_id = $1
+   OR a.comment_id IN (SELECT c.id FROM comment c WHERE c.issue_id = $1)
+`
+
+func (q *Queries) ListAttachmentURLsByIssueOrComments(ctx context.Context, issueID pgtype.UUID) ([]string, error) {
+	rows, err := q.db.Query(ctx, listAttachmentURLsByIssueOrComments, issueID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var url string
+		if err := rows.Scan(&url); err != nil {
+			return nil, err
+		}
+		items = append(items, url)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAttachmentsByComment = `-- name: ListAttachmentsByComment :many
 SELECT id, workspace_id, issue_id, comment_id, uploader_type, uploader_id, filename, url, content_type, size_bytes, created_at FROM attachment
 WHERE comment_id = $1 AND workspace_id = $2

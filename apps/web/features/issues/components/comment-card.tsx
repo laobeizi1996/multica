@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { useActorName } from "@/features/workspace";
 import { timeAgo } from "@/shared/utils";
 import { RichTextEditor, type RichTextEditorRef } from "@/components/common/rich-text-editor";
+import { Markdown } from "@/components/markdown";
 import { ReplyInput } from "./reply-input";
 import type { TimelineEntry } from "@/shared/types";
 
@@ -32,7 +33,7 @@ interface CommentCardProps {
   entry: TimelineEntry;
   allReplies: Map<string, TimelineEntry[]>;
   currentUserId?: string;
-  onReply: (parentId: string, content: string) => Promise<void>;
+  onReply: (parentId: string, content: string, attachmentIds?: string[]) => Promise<void>;
   onEdit: (commentId: string, content: string) => Promise<void>;
   onDelete: (commentId: string) => void;
   onToggleReaction: (commentId: string, emoji: string) => void;
@@ -164,7 +165,7 @@ function CommentRow({
       ) : (
         <>
           <div className="mt-1.5 pl-8 text-sm leading-relaxed text-foreground/85">
-            <RichTextEditor defaultValue={entry.content ?? ""} editable={false} />
+            <Markdown mode="minimal">{entry.content ?? ""}</Markdown>
           </div>
           {!isTemp && (
             <ReactionBar
@@ -339,7 +340,7 @@ function CommentCard({
             ) : (
               <>
                 <div className="pl-10 text-sm leading-relaxed text-foreground/85">
-                  <RichTextEditor defaultValue={entry.content ?? ""} editable={false} />
+                  <Markdown mode="minimal">{entry.content ?? ""}</Markdown>
                 </div>
                 {!isTemp && (
                   <ReactionBar
@@ -374,7 +375,7 @@ function CommentCard({
               size="sm"
               avatarType="member"
               avatarId={currentUserId ?? ""}
-              onSubmit={(content) => onReply(entry.id, content)}
+              onSubmit={(content, attachmentIds) => onReply(entry.id, content, attachmentIds)}
             />
           </div>
         </CollapsibleContent>

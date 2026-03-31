@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -292,5 +293,46 @@ func (h *Handler) DeleteAttachment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	h.deleteS3Object(r.Context(), att.Url)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// ---------------------------------------------------------------------------
+// Attachment linking
+// ---------------------------------------------------------------------------
+
+// linkAttachmentsByIDs links the given attachment IDs to a comment.
+// Only updates attachments that belong to the same issue and have no comment_id yet.
+func (h *Handler) linkAttachmentsByIDs(ctx context.Context, commentID, issueID pgtype.UUID, ids []string) {
+	uuids := make([]pgtype.UUID, len(ids))
+	for i, id := range ids {
+		uuids[i] = parseUUID(id)
+	}
+	if err := h.Queries.LinkAttachmentsToComment(ctx, db.LinkAttachmentsToCommentParams{
+		CommentID: commentID,
+		IssueID:   issueID,
+		Column3:   uuids,
+	}); err != nil {
+		slog.Error("failed to link attachments to comment", "error", err)
+	}
+}
+
+// deleteS3Object removes a single file from S3 by its CDN URL.
+func (h *Handler) deleteS3Object(ctx context.Context, url string) {
+	if h.Storage == nil || url == "" {
+		return
+	}
+	h.Storage.Delete(ctx, h.Storage.KeyFromURL(url))
+}
+
+// deleteS3Objects removes multiple files from S3 by their CDN URLs.
+func (h *Handler) deleteS3Objects(ctx context.Context, urls []string) {
+	if h.Storage == nil || len(urls) == 0 {
+		return
+	}
+	keys := make([]string, len(urls))
+	for i, u := range urls {
+		keys[i] = h.Storage.KeyFromURL(u)
+	}
+	h.Storage.DeleteKeys(ctx, keys)
 }

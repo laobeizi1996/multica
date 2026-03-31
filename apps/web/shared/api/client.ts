@@ -107,6 +107,7 @@ export class ApiClient {
     const res = await fetch(`${this.baseUrl}${path}`, {
       ...init,
       headers,
+      credentials: "include",
     });
 
     if (!res.ok) {
@@ -208,13 +209,14 @@ export class ApiClient {
     return this.fetch(`/api/issues/${issueId}/comments`);
   }
 
-  async createComment(issueId: string, content: string, type?: string, parentId?: string): Promise<Comment> {
+  async createComment(issueId: string, content: string, type?: string, parentId?: string, attachmentIds?: string[]): Promise<Comment> {
     return this.fetch(`/api/issues/${issueId}/comments`, {
       method: "POST",
       body: JSON.stringify({
         content,
         type: type ?? "comment",
         ...(parentId ? { parent_id: parentId } : {}),
+        ...(attachmentIds?.length ? { attachment_ids: attachmentIds } : {}),
       }),
     });
   }
@@ -527,6 +529,7 @@ export class ApiClient {
       method: "POST",
       headers: this.authHeaders(),
       body: formData,
+      credentials: "include",
     });
 
     if (!res.ok) {

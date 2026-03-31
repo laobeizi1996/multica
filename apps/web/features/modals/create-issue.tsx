@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Bot, CalendarDays, ChevronRight, Maximize2, Minimize2, UserMinus, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Bot, CalendarDays, Check, ChevronRight, Maximize2, Minimize2, UserMinus, X as XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { IssueStatus, IssuePriority, IssueAssigneeType } from "@/shared/types";
@@ -62,6 +63,7 @@ function PillButton({
 // ---------------------------------------------------------------------------
 
 export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?: Record<string, unknown> | null }) {
+  const router = useRouter();
   const workspaceName = useWorkspaceStore((s) => s.workspace?.name);
   const members = useWorkspaceStore((s) => s.members);
   const agents = useWorkspaceStore((s) => s.agents);
@@ -125,6 +127,30 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
       useIssueStore.getState().addIssue(issue);
       clearDraft();
       onClose();
+      toast.custom((t) => (
+        <div className="bg-popover text-popover-foreground border rounded-lg shadow-lg p-4 w-[360px]">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="flex items-center justify-center size-5 rounded-full bg-emerald-500/15 text-emerald-500">
+              <Check className="size-3" />
+            </div>
+            <span className="text-sm font-medium">Issue created</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground ml-7">
+            <StatusIcon status={issue.status} className="size-3.5 shrink-0" />
+            <span className="truncate">{issue.identifier} – {issue.title}</span>
+          </div>
+          <button
+            type="button"
+            className="ml-7 mt-2 text-sm text-primary hover:underline cursor-pointer"
+            onClick={() => {
+              router.push(`/issues/${issue.id}`);
+              toast.dismiss(t);
+            }}
+          >
+            View issue
+          </button>
+        </div>
+      ), { duration: 5000 });
     } catch {
       toast.error("Failed to create issue");
     } finally {
@@ -175,7 +201,7 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
                     onClick={onClose}
                     className="rounded-sm p-1.5 opacity-70 hover:opacity-100 hover:bg-accent/60 transition-all cursor-pointer"
                   >
-                    <X className="size-4" />
+                    <XIcon className="size-4" />
                   </button>
                 }
               />
