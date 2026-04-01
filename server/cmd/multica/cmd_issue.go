@@ -133,6 +133,7 @@ func init() {
 	issueUpdateCmd.Flags().String("assignee", "", "New assignee name (member or agent)")
 	issueUpdateCmd.Flags().String("due-date", "", "New due date (RFC3339 format)")
 	issueUpdateCmd.Flags().String("output", "json", "Output format: table or json")
+	issueUpdateCmd.Flags().StringSlice("attachment", nil, "File path(s) to attach (can be specified multiple times)")
 
 	// issue status
 	issueStatusCmd.Flags().String("output", "table", "Output format: table or json")
@@ -249,7 +250,7 @@ func runIssueGet(cmd *cobra.Command, args []string) error {
 		if dueDate != "" && len(dueDate) >= 10 {
 			dueDate = dueDate[:10]
 		}
-		headers := []string{"ID", "TITLE", "STATUS", "PRIORITY", "ASSIGNEE", "DUE DATE", "DESCRIPTION"}
+		headers := []string{"ID", "TITLE", "STATUS", "PRIORITY", "ASSIGNEE", "DUE DATE", "ATTACHMENTS", "DESCRIPTION"}
 		rows := [][]string{{
 			truncateID(strVal(issue, "id")),
 			strVal(issue, "title"),
@@ -257,6 +258,7 @@ func runIssueGet(cmd *cobra.Command, args []string) error {
 			strVal(issue, "priority"),
 			assignee,
 			dueDate,
+			countAttachments(issue),
 			strVal(issue, "description"),
 		}}
 		cli.PrintTable(os.Stdout, headers, rows)
@@ -351,7 +353,14 @@ func runIssueUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	attachments, _ := cmd.Flags().GetStringSlice("attachment")
+
+	// Use a longer timeout when attachments are present (file uploads can be slow).
+	timeout := 15 * time.Second
+	if len(attachments) > 0 {
+		timeout = 60 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	body := map[string]any{}
@@ -385,13 +394,37 @@ func runIssueUpdate(cmd *cobra.Command, args []string) error {
 		body["assignee_id"] = aID
 	}
 
-	if len(body) == 0 {
-		return fmt.Errorf("no fields to update; use flags like --title, --status, --priority, --assignee, etc.")
+	if len(body) == 0 && len(attachments) == 0 {
+		return fmt.Errorf("no fields to update; use flags like --title, --status, --priority, --assignee, --attachment, etc.")
 	}
 
+	issueID := args[0]
+
+	// Update issue metadata if any fields changed.
 	var result map[string]any
-	if err := client.PutJSON(ctx, "/api/issues/"+args[0], body, &result); err != nil {
-		return fmt.Errorf("update issue: %w", err)
+	if len(body) > 0 {
+		if err := client.PutJSON(ctx, "/api/issues/"+issueID, body, &result); err != nil {
+			return fmt.Errorf("update issue: %w", err)
+		}
+	}
+
+	// Upload attachments and link them to the issue.
+	for _, filePath := range attachments {
+		data, readErr := os.ReadFile(filePath)
+		if readErr != nil {
+			return fmt.Errorf("read attachment %s: %w", filePath, readErr)
+		}
+		if _, uploadErr := client.UploadFile(ctx, data, filePath, issueID); uploadErr != nil {
+			return fmt.Errorf("upload attachment %s: %w", filePath, uploadErr)
+		}
+		fmt.Fprintf(os.Stderr, "Uploaded %s\n", filePath)
+	}
+
+	// If only attachments were added (no metadata update), fetch the issue for output.
+	if result == nil {
+		if err := client.GetJSON(ctx, "/api/issues/"+issueID, &result); err != nil {
+			return fmt.Errorf("get issue: %w", err)
+		}
 	}
 
 	output, _ := cmd.Flags().GetString("output")
@@ -521,7 +554,7 @@ func runIssueCommentList(cmd *cobra.Command, args []string) error {
 		return cli.PrintJSON(os.Stdout, comments)
 	}
 
-	headers := []string{"ID", "PARENT", "AUTHOR", "TYPE", "CONTENT", "CREATED"}
+	headers := []string{"ID", "PARENT", "AUTHOR", "TYPE", "CONTENT", "ATTACHMENTS", "CREATED"}
 	rows := make([][]string, 0, len(comments))
 	for _, c := range comments {
 		content := strVal(c, "content")
@@ -543,6 +576,7 @@ func runIssueCommentList(cmd *cobra.Command, args []string) error {
 			strVal(c, "author_type") + ":" + truncateID(strVal(c, "author_id")),
 			strVal(c, "type"),
 			content,
+			countAttachments(c),
 			created,
 		})
 	}
@@ -713,4 +747,12 @@ func truncateID(id string) string {
 		return string(runes[:8])
 	}
 	return id
+}
+
+func countAttachments(m map[string]any) string {
+	arr, ok := m["attachments"].([]any)
+	if !ok || len(arr) == 0 {
+		return "0"
+	}
+	return fmt.Sprintf("%d", len(arr))
 }
