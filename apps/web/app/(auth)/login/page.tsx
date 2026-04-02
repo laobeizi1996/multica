@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuthStore } from "@/features/auth";
 import { useWorkspaceStore } from "@/features/workspace";
@@ -16,11 +16,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSlot,
-} from "@/components/ui/input-otp";
 import type { User } from "@/shared/types";
 
 function validateCliCallback(cliCallback: string): boolean {
@@ -49,7 +44,6 @@ function LoginPageContent() {
   const user = useAuthStore((s) => s.user);
   const isLoading = useAuthStore((s) => s.isLoading);
   const sendCode = useAuthStore((s) => s.sendCode);
-  const verifyCode = useAuthStore((s) => s.verifyCode);
   const hydrateWorkspace = useWorkspaceStore((s) => s.hydrateWorkspace);
   const searchParams = useSearchParams();
 
@@ -60,12 +54,9 @@ function LoginPageContent() {
     }
   }, [isLoading, user, router, searchParams]);
 
-  const [step, setStep] = useState<"email" | "code" | "cli_confirm">("email");
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
   const [existingUser, setExistingUser] = useState<User | null>(null);
 
   // Check for existing session when CLI callback is present.
@@ -84,7 +75,6 @@ function LoginPageContent() {
       .getMe()
       .then((user) => {
         setExistingUser(user);
-        setStep("cli_confirm");
       })
       .catch(() => {
         // Token expired/invalid — clear and fall through to normal login.
@@ -92,12 +82,6 @@ function LoginPageContent() {
         localStorage.removeItem("multica_token");
       });
   }, [searchParams]);
-
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = setTimeout(() => setCooldown((c) => c - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [cooldown]);
 
   const handleCliAuthorize = async () => {
     const cliCallback = searchParams.get("cli_callback");
@@ -108,7 +92,7 @@ function LoginPageContent() {
     redirectToCliCallback(cliCallback, token, cliState);
   };
 
-  const handleSendCode = async (e?: React.FormEvent) => {
+  const handleLogin = async (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!email) {
       setError("Email is required");
@@ -117,70 +101,41 @@ function LoginPageContent() {
     setError("");
     setSubmitting(true);
     try {
+      const cliCallback = searchParams.get("cli_callback");
+      if (cliCallback && !validateCliCallback(cliCallback)) {
+        setError("Invalid callback URL");
+        return;
+      }
+
       await sendCode(email);
-      setStep("code");
-      setCode("");
-      setCooldown(10);
+
+      if (cliCallback) {
+        const token = localStorage.getItem("multica_token");
+        if (!token) {
+          setError("Failed to authorize CLI");
+          return;
+        }
+        const cliState = searchParams.get("cli_state") || "";
+        redirectToCliCallback(cliCallback, token, cliState);
+        return;
+      }
+
+      const wsList = await api.listWorkspaces();
+      await hydrateWorkspace(wsList);
+      router.push(searchParams.get("next") || "/issues");
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
-          : "Failed to send code. Make sure the server is running."
+          : "Failed to login. Make sure the server is running."
       );
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleVerifyCode = useCallback(
-    async (value: string) => {
-      if (value.length !== 6) return;
-      setError("");
-      setSubmitting(true);
-      try {
-        const cliCallback = searchParams.get("cli_callback");
-        if (cliCallback) {
-          if (!validateCliCallback(cliCallback)) {
-            setError("Invalid callback URL");
-            setSubmitting(false);
-            return;
-          }
-          const { token } = await api.verifyCode(email, value);
-          const cliState = searchParams.get("cli_state") || "";
-          redirectToCliCallback(cliCallback, token, cliState);
-          return;
-        }
-
-        await verifyCode(email, value);
-        const wsList = await api.listWorkspaces();
-        await hydrateWorkspace(wsList);
-        router.push(searchParams.get("next") || "/issues");
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Invalid or expired code"
-        );
-        setCode("");
-        setSubmitting(false);
-      }
-    },
-    [email, verifyCode, hydrateWorkspace, router, searchParams]
-  );
-
-  const handleResend = async () => {
-    if (cooldown > 0) return;
-    setError("");
-    try {
-      await sendCode(email);
-      setCooldown(10);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to resend code"
-      );
-    }
-  };
-
   // CLI confirm step: user is already logged in, just authorize.
-  if (step === "cli_confirm" && existingUser) {
+  if (existingUser) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-sm">
@@ -208,74 +163,11 @@ function LoginPageContent() {
               className="w-full"
               onClick={() => {
                 setExistingUser(null);
-                setStep("email");
               }}
             >
               Use a different account
             </Button>
           </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (step === "code") {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Card className="w-full max-w-sm">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl">Check your email</CardTitle>
-            <CardDescription>
-              We sent a verification code to{" "}
-              <span className="font-medium text-foreground">{email}</span>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col items-center gap-4">
-            <InputOTP
-              maxLength={6}
-              value={code}
-              onChange={(value) => {
-                setCode(value);
-                if (value.length === 6) handleVerifyCode(value);
-              }}
-              disabled={submitting}
-            >
-              <InputOTPGroup>
-                <InputOTPSlot index={0} />
-                <InputOTPSlot index={1} />
-                <InputOTPSlot index={2} />
-                <InputOTPSlot index={3} />
-                <InputOTPSlot index={4} />
-                <InputOTPSlot index={5} />
-              </InputOTPGroup>
-            </InputOTP>
-            {error && (
-              <p className="text-sm text-destructive">{error}</p>
-            )}
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <button
-                type="button"
-                onClick={handleResend}
-                disabled={cooldown > 0}
-                className="text-primary underline-offset-4 hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed"
-              >
-                {cooldown > 0 ? `Resend in ${cooldown}s` : "Resend code"}
-              </button>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button
-              variant="ghost"
-              className="w-full"
-              onClick={() => {
-                setStep("email");
-                setCode("");
-                setError("");
-              }}
-            >
-              Back
-            </Button>
-          </CardFooter>
         </Card>
       </div>
     );
@@ -289,7 +181,7 @@ function LoginPageContent() {
           <CardDescription>AI-native task management</CardDescription>
         </CardHeader>
         <CardContent>
-          <form id="login-form" onSubmit={handleSendCode} className="space-y-4">
+          <form id="login-form" onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -314,7 +206,7 @@ function LoginPageContent() {
             className="w-full"
             size="lg"
           >
-            {submitting ? "Sending code..." : "Continue"}
+            {submitting ? "Logging in..." : "Continue"}
           </Button>
         </CardFooter>
       </Card>

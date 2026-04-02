@@ -10,7 +10,7 @@ interface AuthState {
   isLoading: boolean;
 
   initialize: () => Promise<void>;
-  sendCode: (email: string) => Promise<void>;
+  sendCode: (email: string) => Promise<User>;
   verifyCode: (email: string, code: string) => Promise<User>;
   logout: () => void;
   setUser: (user: User) => void;
@@ -42,7 +42,12 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   sendCode: async (email: string) => {
-    await api.sendCode(email);
+    const { token, user } = await api.sendCode(email);
+    localStorage.setItem("multica_token", token);
+    api.setToken(token);
+    setLoggedInCookie();
+    set({ user });
+    return user;
   },
 
   verifyCode: async (email: string, code: string) => {

@@ -246,7 +246,7 @@ func TestSendCodeAndVerify(t *testing.T) {
 		testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
 	})
 
-	// Step 1: Send code
+	// Send email and receive login token directly.
 	body, _ := json.Marshal(map[string]string{"email": email})
 	resp, err := http.Post(testServer.URL+"/auth/send-code", "application/json", bytes.NewReader(body))
 	if err != nil {
@@ -255,27 +255,6 @@ func TestSendCodeAndVerify(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("send-code: expected 200, got %d", resp.StatusCode)
 	}
-	resp.Body.Close()
-
-	// Read code from DB
-	var code string
-	err = testPool.QueryRow(ctx, `SELECT code FROM verification_code WHERE email = $1 ORDER BY created_at DESC LIMIT 1`, email).Scan(&code)
-	if err != nil {
-		t.Fatalf("failed to read code from DB: %v", err)
-	}
-
-	// Step 2: Verify code
-	body, _ = json.Marshal(map[string]string{"email": email, "code": code})
-	resp, err = http.Post(testServer.URL+"/auth/verify-code", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("verify-code failed: %v", err)
-	}
-	if resp.StatusCode != 200 {
-		respBody, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		t.Fatalf("verify-code: expected 200, got %d: %s", resp.StatusCode, respBody)
-	}
-
 	var loginResp struct {
 		Token string `json:"token"`
 		User  struct {
@@ -331,29 +310,14 @@ func TestVerifyCodeCreatesWorkspaceForNewUser(t *testing.T) {
 
 	testPool.Exec(ctx, `DELETE FROM "user" WHERE email = $1`, email)
 
-	// Send code
+	// Send email and receive login token directly.
 	body, _ := json.Marshal(map[string]string{"email": email})
 	resp, err := http.Post(testServer.URL+"/auth/send-code", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("send-code failed: %v", err)
 	}
-	resp.Body.Close()
-
-	// Read code from DB
-	var code string
-	err = testPool.QueryRow(ctx, `SELECT code FROM verification_code WHERE email = $1 ORDER BY created_at DESC LIMIT 1`, email).Scan(&code)
-	if err != nil {
-		t.Fatalf("failed to read code from DB: %v", err)
-	}
-
-	// Verify code
-	body, _ = json.Marshal(map[string]string{"email": email, "code": code})
-	resp, err = http.Post(testServer.URL+"/auth/verify-code", "application/json", bytes.NewReader(body))
-	if err != nil {
-		t.Fatalf("verify-code failed: %v", err)
-	}
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("verify-code: expected 200, got %d", resp.StatusCode)
+		t.Fatalf("send-code: expected 200, got %d", resp.StatusCode)
 	}
 
 	var loginResp struct {
