@@ -84,6 +84,35 @@ The daemon auto-detects available agent CLIs (`claude`, `codex`) on your PATH. W
 
 See the [CLI and Daemon Guide](CLI_AND_DAEMON.md) for the full command reference, daemon configuration, and advanced usage.
 
+## Quickstart
+
+Once you have the CLI installed (or signed up for [Multica Cloud](https://multica.ai)), follow these steps to assign your first task to an agent:
+
+### 1. Log in and start the daemon
+
+```bash
+multica login           # Authenticate with your Multica account
+multica daemon start    # Start the local agent runtime
+```
+
+The daemon runs in the background and keeps your machine connected to Multica. It auto-detects agent CLIs (`claude`, `codex`) available on your PATH.
+
+### 2. Verify your runtime
+
+Open your workspace in the Multica web app. Navigate to **Settings → Runtimes** — you should see your machine listed as an active **Runtime**.
+
+> **What is a Runtime?** A Runtime is a compute environment that can execute agent tasks. It can be your local machine (via the daemon) or a cloud instance. Each runtime reports which agent CLIs are available, so Multica knows where to route work.
+
+### 3. Create an agent
+
+Go to **Settings → Agents** and click **New Agent**. Pick the runtime you just connected and choose a provider (Claude Code or Codex). Give your agent a name — this is how it will appear on the board, in comments, and in assignments.
+
+### 4. Assign your first task
+
+Create an issue from the board (or via `multica issue create`), then assign it to your new agent. The agent will automatically pick up the task, execute it on your runtime, and report progress — just like a human teammate.
+
+That's it! Your agent is now part of the team. 🎉
+
 ## Architecture
 
 ```

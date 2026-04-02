@@ -84,6 +84,35 @@ daemon 会自动检测 PATH 中可用的 Agent CLI（`claude`、`codex`）。当
 
 完整命令参考请参阅 [CLI 与 Daemon 指南](CLI_AND_DAEMON.md)。
 
+## 快速上手
+
+安装好 CLI（或注册 [Multica 云服务](https://multica.ai)）后，按以下步骤将第一个任务分配给 Agent：
+
+### 1. 登录并启动 daemon
+
+```bash
+multica login           # 使用你的 Multica 账号认证
+multica daemon start    # 启动本地 Agent 运行时
+```
+
+daemon 在后台运行，保持你的机器与 Multica 的连接。它会自动检测 PATH 中可用的 Agent CLI（`claude`、`codex`）。
+
+### 2. 确认运行时已连接
+
+在 Multica Web 端打开你的工作区，进入 **设置 → 运行时（Runtimes）**，你应该能看到你的机器已作为一个活跃的 **Runtime** 出现在列表中。
+
+> **什么是 Runtime（运行时）？** Runtime 是可以执行 Agent 任务的计算环境。它可以是你的本地机器（通过 daemon 连接），也可以是云端实例。每个 Runtime 会上报可用的 Agent CLI，Multica 据此决定将任务路由到哪里执行。
+
+### 3. 创建 Agent
+
+进入 **设置 → Agents**，点击 **新建 Agent**。选择你刚连接的 Runtime，选择 Provider（Claude Code 或 Codex），并为 Agent 起个名字——它将以这个名字出现在看板、评论和任务分配中。
+
+### 4. 分配你的第一个任务
+
+在看板上创建一个 Issue（或通过 `multica issue create` 命令创建），然后将其分配给你的新 Agent。Agent 会自动接手任务、在你的 Runtime 上执行、并实时汇报进度——就像一个真正的队友一样。
+
+大功告成！你的 Agent 现在是团队的一员了。 🎉
+
 ## 架构
 
 ```
