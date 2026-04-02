@@ -2,14 +2,9 @@ package handler
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/subtle"
-	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -161,15 +156,6 @@ func (h *Handler) ensureUserWorkspace(ctx context.Context, user db.User) error {
 	return tx.Commit(ctx)
 }
 
-func generateCode() (string, error) {
-	var buf [4]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return "", err
-	}
-	n := binary.BigEndian.Uint32(buf[:]) % 1000000
-	return fmt.Sprintf("%06d", n), nil
-}
-
 func (h *Handler) issueJWT(user db.User) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub":   uuidToString(user.ID),
@@ -215,38 +201,36 @@ func (h *Handler) SendCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rate limit: max 1 code per 10 seconds per email
-	latest, err := h.Queries.GetLatestCodeByEmail(r.Context(), email)
-	if err == nil && time.Since(latest.CreatedAt.Time) < 10*time.Second {
-		writeError(w, http.StatusTooManyRequests, "please wait before requesting another code")
-		return
-	}
-
-	code, err := generateCode()
+	user, err := h.findOrCreateUser(r.Context(), email)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to generate code")
+		writeError(w, http.StatusInternalServerError, "failed to create user")
 		return
 	}
 
-	_, err = h.Queries.CreateVerificationCode(r.Context(), db.CreateVerificationCodeParams{
-		Email:     email,
-		Code:      code,
-		ExpiresAt: pgtype.Timestamptz{Time: time.Now().Add(10 * time.Minute), Valid: true},
+	if err := h.ensureUserWorkspace(r.Context(), user); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to provision workspace")
+		return
+	}
+
+	tokenString, err := h.issueJWT(user)
+	if err != nil {
+		slog.Warn("login failed", append(logger.RequestAttrs(r), "error", err, "email", req.Email)...)
+		writeError(w, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	// Set CloudFront signed cookies for CDN access.
+	if h.CFSigner != nil {
+		for _, cookie := range h.CFSigner.SignedCookies(time.Now().Add(72 * time.Hour)) {
+			http.SetCookie(w, cookie)
+		}
+	}
+
+	slog.Info("user logged in", append(logger.RequestAttrs(r), "user_id", uuidToString(user.ID), "email", user.Email)...)
+	writeJSON(w, http.StatusOK, LoginResponse{
+		Token: tokenString,
+		User:  userToResponse(user),
 	})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to store verification code")
-		return
-	}
-
-	if err := h.EmailService.SendVerificationCode(email, code); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to send verification code")
-		return
-	}
-
-	// Best-effort cleanup of expired codes
-	_ = h.Queries.DeleteExpiredVerificationCodes(r.Context())
-
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Verification code sent"})
 }
 
 func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
@@ -257,28 +241,8 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := strings.ToLower(strings.TrimSpace(req.Email))
-	code := strings.TrimSpace(req.Code)
-
-	if email == "" || code == "" {
-		writeError(w, http.StatusBadRequest, "email and code are required")
-		return
-	}
-
-	dbCode, err := h.Queries.GetLatestVerificationCode(r.Context(), email)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid or expired code")
-		return
-	}
-
-	isMasterCode := code == "888888" && os.Getenv("APP_ENV") != "production"
-	if !isMasterCode && subtle.ConstantTimeCompare([]byte(code), []byte(dbCode.Code)) != 1 {
-		_ = h.Queries.IncrementVerificationCodeAttempts(r.Context(), dbCode.ID)
-		writeError(w, http.StatusBadRequest, "invalid or expired code")
-		return
-	}
-
-	if err := h.Queries.MarkVerificationCodeUsed(r.Context(), dbCode.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "failed to verify code")
+	if email == "" {
+		writeError(w, http.StatusBadRequest, "email is required")
 		return
 	}
 

@@ -78,7 +78,7 @@ describe("LoginPage", () => {
     });
   });
 
-  it("shows 'Sending code...' while submitting", async () => {
+  it("shows 'Logging in...' while submitting", async () => {
     mockSendCode.mockReturnValueOnce(new Promise(() => {}));
     const user = userEvent.setup();
     render(<LoginPage />);
@@ -87,20 +87,7 @@ describe("LoginPage", () => {
     await user.click(screen.getByRole("button", { name: "Continue" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Sending code...")).toBeInTheDocument();
-    });
-  });
-
-  it("shows verification code step after sending code", async () => {
-    mockSendCode.mockResolvedValueOnce(undefined);
-    const user = userEvent.setup();
-    render(<LoginPage />);
-
-    await user.type(screen.getByLabelText("Email"), "test@multica.ai");
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Check your email")).toBeInTheDocument();
+      expect(screen.getByText("Logging in...")).toBeInTheDocument();
     });
   });
 
