@@ -20,6 +20,17 @@ export interface IssueReaction {
   created_at: string;
 }
 
+export interface IssueProject {
+  id: string;
+  workspace_id: string;
+  parent_id: string | null;
+  name: string;
+  slug: string;
+  description: string;
+  kind: "portfolio" | "epic" | "theme" | "general";
+  status: "active" | "archived";
+}
+
 export interface Issue {
   id: string;
   workspace_id: string;
@@ -36,6 +47,8 @@ export interface Issue {
   parent_issue_id: string | null;
   position: number;
   due_date: string | null;
+  projects?: IssueProject[];
+  primary_project_id?: string | null;
   reactions?: IssueReaction[];
   created_at: string;
   updated_at: string;

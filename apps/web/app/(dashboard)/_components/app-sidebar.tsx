@@ -91,7 +91,7 @@ export function AppSidebar() {
                 <DropdownMenu>
                   <DropdownMenuTrigger
                     render={
-                      <SidebarMenuButton>
+                      <SidebarMenuButton aria-label="Workspace menu">
                         <WorkspaceAvatar name={workspace?.name ?? "M"} size="sm" />
                         <span className="flex-1 truncate font-medium">
                           {workspace?.name ?? "Multica"}
@@ -159,6 +159,7 @@ export function AppSidebar() {
               <TooltipTrigger
                 className="relative flex h-7 w-7 items-center justify-center rounded-lg bg-background text-foreground shadow-sm hover:bg-accent"
                 onClick={() => useModalStore.getState().open("create-issue")}
+                aria-label="New issue"
               >
                 <SquarePen className="size-3.5" />
                 <DraftDot />

@@ -18,25 +18,27 @@ import (
 
 // IssueResponse is the JSON response for an issue.
 type IssueResponse struct {
-	ID                 string                  `json:"id"`
-	WorkspaceID        string                  `json:"workspace_id"`
-	Number             int32                   `json:"number"`
-	Identifier         string                  `json:"identifier"`
-	Title              string                  `json:"title"`
-	Description        *string                 `json:"description"`
-	Status             string                  `json:"status"`
-	Priority           string                  `json:"priority"`
-	AssigneeType       *string                 `json:"assignee_type"`
-	AssigneeID         *string                 `json:"assignee_id"`
-	CreatorType        string                  `json:"creator_type"`
-	CreatorID          string                  `json:"creator_id"`
-	ParentIssueID      *string                 `json:"parent_issue_id"`
-	Position           float64                 `json:"position"`
-	DueDate            *string                 `json:"due_date"`
-	CreatedAt          string                  `json:"created_at"`
-	UpdatedAt          string                  `json:"updated_at"`
-	Reactions          []IssueReactionResponse `json:"reactions,omitempty"`
-	Attachments        []AttachmentResponse    `json:"attachments,omitempty"`
+	ID               string                  `json:"id"`
+	WorkspaceID      string                  `json:"workspace_id"`
+	Number           int32                   `json:"number"`
+	Identifier       string                  `json:"identifier"`
+	Title            string                  `json:"title"`
+	Description      *string                 `json:"description"`
+	Status           string                  `json:"status"`
+	Priority         string                  `json:"priority"`
+	AssigneeType     *string                 `json:"assignee_type"`
+	AssigneeID       *string                 `json:"assignee_id"`
+	CreatorType      string                  `json:"creator_type"`
+	CreatorID        string                  `json:"creator_id"`
+	ParentIssueID    *string                 `json:"parent_issue_id"`
+	Position         float64                 `json:"position"`
+	DueDate          *string                 `json:"due_date"`
+	CreatedAt        string                  `json:"created_at"`
+	UpdatedAt        string                  `json:"updated_at"`
+	Projects         []IssueProjectResponse  `json:"projects"`
+	PrimaryProjectID *string                 `json:"primary_project_id"`
+	Reactions        []IssueReactionResponse `json:"reactions,omitempty"`
+	Attachments      []AttachmentResponse    `json:"attachments,omitempty"`
 }
 
 type agentTriggerSnapshot struct {
@@ -76,6 +78,7 @@ func issueToResponse(i db.Issue, issuePrefix string) IssueResponse {
 		DueDate:       timestampToPtr(i.DueDate),
 		CreatedAt:     timestampToString(i.CreatedAt),
 		UpdatedAt:     timestampToString(i.UpdatedAt),
+		Projects:      []IssueProjectResponse{},
 	}
 }
 
@@ -110,14 +113,24 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	if a := r.URL.Query().Get("assignee_id"); a != "" {
 		assigneeFilter = parseUUID(a)
 	}
+	var projectFilter pgtype.UUID
+	if p := r.URL.Query().Get("project_id"); p != "" {
+		projectFilter = parseUUID(p)
+	}
+	var projectLabelFilter pgtype.UUID
+	if p := r.URL.Query().Get("project_label_id"); p != "" {
+		projectLabelFilter = parseUUID(p)
+	}
 
 	issues, err := h.Queries.ListIssues(ctx, db.ListIssuesParams{
-		WorkspaceID: parseUUID(workspaceID),
-		Limit:       int32(limit),
-		Offset:      int32(offset),
-		Status:      statusFilter,
-		Priority:    priorityFilter,
-		AssigneeID:  assigneeFilter,
+		WorkspaceID:    parseUUID(workspaceID),
+		Limit:          int32(limit),
+		Offset:         int32(offset),
+		Status:         statusFilter,
+		Priority:       priorityFilter,
+		AssigneeID:     assigneeFilter,
+		ProjectID:      projectFilter,
+		ProjectLabelID: projectLabelFilter,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to list issues")
@@ -128,6 +141,7 @@ func (h *Handler) ListIssues(w http.ResponseWriter, r *http.Request) {
 	resp := make([]IssueResponse, len(issues))
 	for i, issue := range issues {
 		resp[i] = issueToResponse(issue, prefix)
+		h.attachIssueProjects(ctx, &resp[i], issue.ID)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -144,6 +158,7 @@ func (h *Handler) GetIssue(w http.ResponseWriter, r *http.Request) {
 	}
 	prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
 	resp := issueToResponse(issue, prefix)
+	h.attachIssueProjects(r.Context(), &resp, issue.ID)
 
 	// Fetch issue reactions.
 	reactions, err := h.Queries.ListIssueReactions(r.Context(), issue.ID)
@@ -170,14 +185,16 @@ func (h *Handler) GetIssue(w http.ResponseWriter, r *http.Request) {
 }
 
 type CreateIssueRequest struct {
-	Title              string  `json:"title"`
-	Description        *string `json:"description"`
-	Status             string  `json:"status"`
-	Priority           string  `json:"priority"`
-	AssigneeType       *string `json:"assignee_type"`
-	AssigneeID         *string `json:"assignee_id"`
-	ParentIssueID      *string `json:"parent_issue_id"`
-	DueDate            *string `json:"due_date"`
+	Title            string   `json:"title"`
+	Description      *string  `json:"description"`
+	Status           string   `json:"status"`
+	Priority         string   `json:"priority"`
+	AssigneeType     *string  `json:"assignee_type"`
+	AssigneeID       *string  `json:"assignee_id"`
+	ParentIssueID    *string  `json:"parent_issue_id"`
+	DueDate          *string  `json:"due_date"`
+	ProjectIDs       []string `json:"project_ids"`
+	PrimaryProjectID *string  `json:"primary_project_id"`
 }
 
 func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
@@ -262,23 +279,29 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 	creatorType, actualCreatorID := h.resolveActor(r, creatorID, workspaceID)
 
 	issue, err := qtx.CreateIssue(r.Context(), db.CreateIssueParams{
-		WorkspaceID:        parseUUID(workspaceID),
-		Title:              req.Title,
-		Description:        ptrToText(req.Description),
-		Status:             status,
-		Priority:           priority,
-		AssigneeType:       assigneeType,
-		AssigneeID:         assigneeID,
-		CreatorType:        creatorType,
-		CreatorID:          parseUUID(actualCreatorID),
-		ParentIssueID:      parentIssueID,
-		Position:           0,
-		DueDate:            dueDate,
-		Number:             issueNumber,
+		WorkspaceID:   parseUUID(workspaceID),
+		Title:         req.Title,
+		Description:   ptrToText(req.Description),
+		Status:        status,
+		Priority:      priority,
+		AssigneeType:  assigneeType,
+		AssigneeID:    assigneeID,
+		CreatorType:   creatorType,
+		CreatorID:     parseUUID(actualCreatorID),
+		ParentIssueID: parentIssueID,
+		Position:      0,
+		DueDate:       dueDate,
+		Number:        issueNumber,
 	})
 	if err != nil {
 		slog.Warn("create issue failed", append(logger.RequestAttrs(r), "error", err, "workspace_id", workspaceID)...)
 		writeError(w, http.StatusInternalServerError, "failed to create issue: "+err.Error())
+		return
+	}
+
+	projectRows, err := h.setIssueProjects(r.Context(), qtx, issue, req.ProjectIDs, req.PrimaryProjectID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -289,6 +312,7 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 
 	prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
 	resp := issueToResponse(issue, prefix)
+	applyIssueProjects(&resp, projectRows)
 	slog.Info("issue created", append(logger.RequestAttrs(r), "issue_id", uuidToString(issue.ID), "title", issue.Title, "status", issue.Status, "workspace_id", workspaceID)...)
 	h.publish(protocol.EventIssueCreated, workspaceID, creatorType, actualCreatorID, map[string]any{"issue": resp})
 
@@ -303,14 +327,16 @@ func (h *Handler) CreateIssue(w http.ResponseWriter, r *http.Request) {
 }
 
 type UpdateIssueRequest struct {
-	Title              *string  `json:"title"`
-	Description        *string  `json:"description"`
-	Status             *string  `json:"status"`
-	Priority           *string  `json:"priority"`
-	AssigneeType       *string  `json:"assignee_type"`
-	AssigneeID         *string  `json:"assignee_id"`
-	Position           *float64 `json:"position"`
-	DueDate            *string  `json:"due_date"`
+	Title            *string  `json:"title"`
+	Description      *string  `json:"description"`
+	Status           *string  `json:"status"`
+	Priority         *string  `json:"priority"`
+	AssigneeType     *string  `json:"assignee_type"`
+	AssigneeID       *string  `json:"assignee_id"`
+	Position         *float64 `json:"position"`
+	DueDate          *string  `json:"due_date"`
+	ProjectIDs       []string `json:"project_ids"`
+	PrimaryProjectID *string  `json:"primary_project_id"`
 }
 
 func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
@@ -399,15 +425,69 @@ func (h *Handler) UpdateIssue(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	issue, err := h.Queries.UpdateIssue(r.Context(), params)
+	tx, err := h.TxStarter.Begin(r.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update issue")
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	qtx := h.Queries.WithTx(tx)
+	issue, err := qtx.UpdateIssue(r.Context(), params)
 	if err != nil {
 		slog.Warn("update issue failed", append(logger.RequestAttrs(r), "error", err, "issue_id", id, "workspace_id", workspaceID)...)
 		writeError(w, http.StatusInternalServerError, "failed to update issue: "+err.Error())
 		return
 	}
 
+	projectRows, _ := qtx.ListIssueProjectsWithPrimary(r.Context(), issue.ID)
+	projectIDsProvided := false
+	primaryProjectProvided := false
+	if _, ok := rawFields["project_ids"]; ok {
+		projectIDsProvided = true
+	}
+	if _, ok := rawFields["primary_project_id"]; ok {
+		primaryProjectProvided = true
+	}
+
+	if projectIDsProvided || primaryProjectProvided {
+		selectedProjectIDs := make([]string, 0)
+		if projectIDsProvided {
+			selectedProjectIDs = req.ProjectIDs
+		} else {
+			for _, row := range projectRows {
+				selectedProjectIDs = append(selectedProjectIDs, uuidToString(row.ID))
+			}
+		}
+
+		var primaryID *string
+		if primaryProjectProvided {
+			primaryID = req.PrimaryProjectID
+		} else {
+			for _, row := range projectRows {
+				if row.IsPrimary {
+					value := uuidToString(row.ID)
+					primaryID = &value
+					break
+				}
+			}
+		}
+
+		projectRows, err = h.setIssueProjects(r.Context(), qtx, issue, selectedProjectIDs, primaryID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+
+	if err := tx.Commit(r.Context()); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to update issue")
+		return
+	}
+
 	prefix := h.getIssuePrefix(r.Context(), issue.WorkspaceID)
 	resp := issueToResponse(issue, prefix)
+	applyIssueProjects(&resp, projectRows)
 	slog.Info("issue updated", append(logger.RequestAttrs(r), "issue_id", id, "workspace_id", workspaceID)...)
 
 	assigneeChanged := (req.AssigneeType != nil || req.AssigneeID != nil) &&

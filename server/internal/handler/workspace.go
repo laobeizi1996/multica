@@ -31,16 +31,17 @@ func generateIssuePrefix(name string) string {
 }
 
 type WorkspaceResponse struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Slug        string  `json:"slug"`
-	Description *string `json:"description"`
-	Context     *string `json:"context"`
-	Settings    any     `json:"settings"`
-	Repos       any     `json:"repos"`
-	IssuePrefix string  `json:"issue_prefix"`
-	CreatedAt   string  `json:"created_at"`
-	UpdatedAt   string  `json:"updated_at"`
+	ID            string                          `json:"id"`
+	Name          string                          `json:"name"`
+	Slug          string                          `json:"slug"`
+	Description   *string                         `json:"description"`
+	Context       *string                         `json:"context"`
+	Settings      any                             `json:"settings"`
+	Repos         any                             `json:"repos"`
+	KnowledgeRepo *WorkspaceKnowledgeRepoResponse `json:"knowledge_repo,omitempty"`
+	IssuePrefix   string                          `json:"issue_prefix"`
+	CreatedAt     string                          `json:"created_at"`
+	UpdatedAt     string                          `json:"updated_at"`
 }
 
 func workspaceToResponse(w db.Workspace) WorkspaceResponse {
@@ -70,6 +71,15 @@ func workspaceToResponse(w db.Workspace) WorkspaceResponse {
 		CreatedAt:   timestampToString(w.CreatedAt),
 		UpdatedAt:   timestampToString(w.UpdatedAt),
 	}
+}
+
+func (h *Handler) loadKnowledgeRepoResponse(r *http.Request, workspaceID string) *WorkspaceKnowledgeRepoResponse {
+	repo, err := h.Queries.GetWorkspaceKnowledgeRepo(r.Context(), parseUUID(workspaceID))
+	if err != nil {
+		return nil
+	}
+	resp := knowledgeRepoToResponse(repo)
+	return &resp
 }
 
 type MemberResponse struct {
@@ -105,6 +115,7 @@ func (h *Handler) ListWorkspaces(w http.ResponseWriter, r *http.Request) {
 	resp := make([]WorkspaceResponse, len(workspaces))
 	for i, ws := range workspaces {
 		resp[i] = workspaceToResponse(ws)
+		resp[i].KnowledgeRepo = h.loadKnowledgeRepoResponse(r, uuidToString(ws.ID))
 	}
 
 	writeJSON(w, http.StatusOK, resp)
@@ -118,7 +129,9 @@ func (h *Handler) GetWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "workspace not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, workspaceToResponse(ws))
+	resp := workspaceToResponse(ws)
+	resp.KnowledgeRepo = h.loadKnowledgeRepoResponse(r, id)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 type CreateWorkspaceRequest struct {
@@ -193,7 +206,9 @@ func (h *Handler) CreateWorkspace(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("workspace created", append(logger.RequestAttrs(r), "workspace_id", uuidToString(ws.ID), "name", ws.Name, "slug", ws.Slug)...)
-	writeJSON(w, http.StatusCreated, workspaceToResponse(ws))
+	resp := workspaceToResponse(ws)
+	resp.KnowledgeRepo = h.loadKnowledgeRepoResponse(r, uuidToString(ws.ID))
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 type UpdateWorkspaceRequest struct {
@@ -257,7 +272,9 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 	userID := requestUserID(r)
 	h.publish(protocol.EventWorkspaceUpdated, id, "member", userID, map[string]any{"workspace": workspaceToResponse(ws)})
 
-	writeJSON(w, http.StatusOK, workspaceToResponse(ws))
+	resp := workspaceToResponse(ws)
+	resp.KnowledgeRepo = h.loadKnowledgeRepoResponse(r, id)
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) ListMembers(w http.ResponseWriter, r *http.Request) {

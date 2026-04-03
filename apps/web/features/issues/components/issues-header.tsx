@@ -9,9 +9,11 @@ import {
   CircleDot,
   Columns3,
   Filter,
+  FolderTree,
   List,
   SignalHigh,
   SlidersHorizontal,
+  Tag,
   User,
   UserMinus,
   UserPen,
@@ -55,9 +57,8 @@ import {
   useIssuesScopeStore,
   type IssuesScope,
 } from "@/features/issues/stores/issues-scope-store";
-import { filterIssues } from "@/features/issues/utils/filter";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
-import type { Issue } from "@/shared/types";
+import type { Issue, Project, ProjectLabel } from "@/shared/types";
 
 // ---------------------------------------------------------------------------
 // HoverCheck — shadcn official pattern (PR #6862)
@@ -87,21 +88,77 @@ function getActiveFilterCount(state: {
   assigneeFilters: ActorFilterValue[];
   includeNoAssignee: boolean;
   creatorFilters: ActorFilterValue[];
+  projectFilters?: string[];
+  projectLabelFilters?: string[];
 }) {
+  const projectFilters = state.projectFilters ?? [];
+  const projectLabelFilters = state.projectLabelFilters ?? [];
   let count = 0;
   if (state.statusFilters.length > 0) count++;
   if (state.priorityFilters.length > 0) count++;
   if (state.assigneeFilters.length > 0 || state.includeNoAssignee) count++;
   if (state.creatorFilters.length > 0) count++;
+  if (projectFilters.length > 0) count++;
+  if (projectLabelFilters.length > 0) count++;
   return count;
 }
 
-function useIssueCounts(allIssues: Issue[]) {
+function getIssueProjectIds(issue: Issue): string[] {
+  const ids = new Set<string>();
+  for (const project of issue.projects ?? []) {
+    ids.add(project.id);
+  }
+  if (issue.primary_project_id) {
+    ids.add(issue.primary_project_id);
+  }
+  return Array.from(ids);
+}
+
+function flattenProjectTree(projects: Project[]) {
+  const childrenByParent = new Map<string | null, Project[]>();
+  for (const project of projects) {
+    const parentId = project.parent_id ?? null;
+    const current = childrenByParent.get(parentId) ?? [];
+    current.push(project);
+    childrenByParent.set(parentId, current);
+  }
+
+  for (const list of childrenByParent.values()) {
+    list.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  const visited = new Set<string>();
+  const flattened: Array<{ project: Project; depth: number }> = [];
+
+  const walk = (parentId: string | null, depth: number) => {
+    for (const project of childrenByParent.get(parentId) ?? []) {
+      if (visited.has(project.id)) continue;
+      visited.add(project.id);
+      flattened.push({ project, depth });
+      walk(project.id, depth + 1);
+    }
+  };
+
+  walk(null, 0);
+
+  for (const project of projects) {
+    if (visited.has(project.id)) continue;
+    flattened.push({ project, depth: 0 });
+    walk(project.id, 1);
+  }
+
+  return flattened;
+}
+
+function useIssueCounts(allIssues: Issue[], projects: Project[]) {
   return useMemo(() => {
     const status = new Map<string, number>();
     const priority = new Map<string, number>();
     const assignee = new Map<string, number>();
     const creator = new Map<string, number>();
+    const project = new Map<string, number>();
+    const projectLabel = new Map<string, number>();
+    const projectById = new Map(projects.map((item) => [item.id, item]));
     let noAssignee = 0;
 
     for (const issue of allIssues) {
@@ -117,10 +174,26 @@ function useIssueCounts(allIssues: Issue[]) {
 
       const cKey = `${issue.creator_type}:${issue.creator_id}`;
       creator.set(cKey, (creator.get(cKey) ?? 0) + 1);
+
+      const issueProjectIds = getIssueProjectIds(issue);
+      for (const projectId of issueProjectIds) {
+        project.set(projectId, (project.get(projectId) ?? 0) + 1);
+      }
+
+      const issueLabelIds = new Set<string>();
+      for (const projectId of issueProjectIds) {
+        const projectItem = projectById.get(projectId);
+        for (const label of projectItem?.labels ?? []) {
+          issueLabelIds.add(label.id);
+        }
+      }
+      for (const labelId of issueLabelIds) {
+        projectLabel.set(labelId, (projectLabel.get(labelId) ?? 0) + 1);
+      }
     }
 
-    return { status, priority, assignee, creator, noAssignee };
-  }, [allIssues]);
+    return { status, priority, assignee, creator, project, projectLabel, noAssignee };
+  }, [allIssues, projects]);
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +341,135 @@ function ActorSubContent({
   );
 }
 
+function ProjectSubContent({
+  counts,
+  selectedIds,
+  onToggle,
+}: {
+  counts: Map<string, number>;
+  selectedIds: string[];
+  onToggle: (projectId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const projects = useWorkspaceStore((s) => s.projects ?? []);
+  const query = search.toLowerCase();
+  const flattened = useMemo(() => flattenProjectTree(projects), [projects]);
+  const visibleProjects = flattened.filter(({ project }) => {
+    if (!query) return true;
+    return project.name.toLowerCase().includes(query);
+  });
+
+  return (
+    <>
+      <div className="px-2 py-1.5 border-b border-foreground/5">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter projects..."
+          className="w-full bg-transparent text-sm placeholder:text-muted-foreground outline-none"
+          autoFocus
+        />
+      </div>
+      <div className="max-h-64 overflow-y-auto p-1">
+        {visibleProjects.map(({ project, depth }) => {
+          const checked = selectedIds.includes(project.id);
+          const count = counts.get(project.id) ?? 0;
+          return (
+            <DropdownMenuCheckboxItem
+              key={project.id}
+              checked={checked}
+              onCheckedChange={() => onToggle(project.id)}
+              className={FILTER_ITEM_CLASS}
+            >
+              <HoverCheck checked={checked} />
+              <span
+                className="inline-block w-0 shrink-0"
+                style={{ marginLeft: `${depth * 10}px` }}
+              />
+              <FolderTree className="size-3.5 text-muted-foreground" />
+              <span className="truncate">{project.name}</span>
+              {count > 0 && (
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {count}
+                </span>
+              )}
+            </DropdownMenuCheckboxItem>
+          );
+        })}
+
+        {visibleProjects.length === 0 && (
+          <div className="px-2 py-3 text-center text-sm text-muted-foreground">
+            No results
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function LabelSubContent({
+  labels,
+  counts,
+  selectedIds,
+  onToggle,
+}: {
+  labels: ProjectLabel[];
+  counts: Map<string, number>;
+  selectedIds: string[];
+  onToggle: (labelId: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const query = search.toLowerCase();
+  const filteredLabels = labels.filter((label) =>
+    label.name.toLowerCase().includes(query),
+  );
+
+  return (
+    <>
+      <div className="px-2 py-1.5 border-b border-foreground/5">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Filter labels..."
+          className="w-full bg-transparent text-sm placeholder:text-muted-foreground outline-none"
+          autoFocus
+        />
+      </div>
+      <div className="max-h-64 overflow-y-auto p-1">
+        {filteredLabels.map((label) => {
+          const checked = selectedIds.includes(label.id);
+          const count = counts.get(label.id) ?? 0;
+          return (
+            <DropdownMenuCheckboxItem
+              key={label.id}
+              checked={checked}
+              onCheckedChange={() => onToggle(label.id)}
+              className={FILTER_ITEM_CLASS}
+            >
+              <HoverCheck checked={checked} />
+              <Tag className="size-3.5 text-muted-foreground" />
+              <span className="truncate">{label.name}</span>
+              {count > 0 && (
+                <span className="ml-auto text-xs text-muted-foreground">
+                  {count}
+                </span>
+              )}
+            </DropdownMenuCheckboxItem>
+          );
+        })}
+
+        {filteredLabels.length === 0 && (
+          <div className="px-2 py-3 text-center text-sm text-muted-foreground">
+            No results
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // IssuesHeader
 // ---------------------------------------------------------------------------
@@ -282,12 +484,16 @@ export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
   const assigneeFilters = useIssueViewStore((s) => s.assigneeFilters);
   const includeNoAssignee = useIssueViewStore((s) => s.includeNoAssignee);
   const creatorFilters = useIssueViewStore((s) => s.creatorFilters);
+  const projectFilters = useIssueViewStore((s) => s.projectFilters ?? []);
+  const projectLabelFilters = useIssueViewStore((s) => s.projectLabelFilters ?? []);
   const sortBy = useIssueViewStore((s) => s.sortBy);
   const sortDirection = useIssueViewStore((s) => s.sortDirection);
   const cardProperties = useIssueViewStore((s) => s.cardProperties);
+  const projects = useWorkspaceStore((s) => s.projects ?? []);
+  const projectLabels = useWorkspaceStore((s) => s.projectLabels ?? []);
   const act = useIssueViewStore.getState();
 
-  const counts = useIssueCounts(scopedIssues);
+  const counts = useIssueCounts(scopedIssues, projects);
 
   const hasActiveFilters =
     getActiveFilterCount({
@@ -296,6 +502,8 @@ export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
       assigneeFilters,
       includeNoAssignee,
       creatorFilters,
+      projectFilters,
+      projectLabelFilters,
     }) > 0;
 
   const sortLabel =
@@ -338,6 +546,7 @@ export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
                 <TooltipTrigger
                   render={
                     <Button variant="outline" size="icon-sm" className="relative text-muted-foreground">
+                      <span className="sr-only">Filters</span>
                       <Filter className="size-4" />
                       {hasActiveFilters && (
                         <span className="absolute top-0 right-0 size-1.5 rounded-full bg-brand" />
@@ -466,6 +675,47 @@ export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
               </DropdownMenuSubContent>
             </DropdownMenuSub>
 
+            {/* Project */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <FolderTree className="size-3.5" />
+                <span className="flex-1">Project</span>
+                {projectFilters.length > 0 && (
+                  <span className="text-xs text-primary font-medium">
+                    {projectFilters.length}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-auto min-w-64 p-0">
+                <ProjectSubContent
+                  counts={counts.project}
+                  selectedIds={projectFilters}
+                  onToggle={act.toggleProjectFilter}
+                />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            {/* Project label */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Tag className="size-3.5" />
+                <span className="flex-1">Project label</span>
+                {projectLabelFilters.length > 0 && (
+                  <span className="text-xs text-primary font-medium">
+                    {projectLabelFilters.length}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-auto min-w-52 p-0">
+                <LabelSubContent
+                  labels={projectLabels}
+                  counts={counts.projectLabel}
+                  selectedIds={projectLabelFilters}
+                  onToggle={act.toggleProjectLabelFilter}
+                />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
             {/* Reset */}
             {hasActiveFilters && (
               <>
@@ -486,6 +736,7 @@ export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
                 <TooltipTrigger
                   render={
                     <Button variant="outline" size="icon-sm" className="text-muted-foreground">
+                      <span className="sr-only">Display settings</span>
                       <SlidersHorizontal className="size-4" />
                     </Button>
                   }
@@ -572,6 +823,7 @@ export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
                 <TooltipTrigger
                   render={
                     <Button variant="outline" size="icon-sm" className="text-muted-foreground">
+                      <span className="sr-only">View mode</span>
                       {viewMode === "board" ? (
                         <Columns3 className="size-4" />
                       ) : (

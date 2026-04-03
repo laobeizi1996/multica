@@ -17,26 +17,48 @@ set +a
 POSTGRES_DB="${POSTGRES_DB:-multica}"
 POSTGRES_USER="${POSTGRES_USER:-multica}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-multica}"
+POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 
 export PGPASSWORD="$POSTGRES_PASSWORD"
 
 echo "==> Ensuring shared PostgreSQL container is running on localhost:5432..."
-docker compose up -d postgres
 
-echo "==> Waiting for PostgreSQL to be ready..."
-until docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d postgres > /dev/null 2>&1; do
-  sleep 1
-done
+if command -v docker > /dev/null 2>&1; then
+  docker compose up -d postgres
 
-echo "==> Ensuring database '$POSTGRES_DB' exists..."
-db_exists="$(docker compose exec -T postgres \
-  psql -U "$POSTGRES_USER" -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB'")"
+  echo "==> Waiting for PostgreSQL to be ready..."
+  until docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d postgres > /dev/null 2>&1; do
+    sleep 1
+  done
 
-if [ "$db_exists" != "1" ]; then
-  docker compose exec -T postgres \
-    psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 \
-    -c "CREATE DATABASE \"$POSTGRES_DB\"" \
-    > /dev/null
+  echo "==> Ensuring database '$POSTGRES_DB' exists..."
+  db_exists="$(docker compose exec -T postgres \
+    psql -U "$POSTGRES_USER" -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB'")"
+
+  if [ "$db_exists" != "1" ]; then
+    docker compose exec -T postgres \
+      psql -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 \
+      -c "CREATE DATABASE \"$POSTGRES_DB\"" \
+      > /dev/null
+  fi
+else
+  echo "==> docker not found, falling back to existing PostgreSQL on localhost:$POSTGRES_PORT"
+  if ! pg_isready -h localhost -p "$POSTGRES_PORT" > /dev/null 2>&1; then
+    echo "ERROR: PostgreSQL is not reachable and docker is unavailable."
+    exit 1
+  fi
+
+  if command -v psql > /dev/null 2>&1; then
+    echo "==> Ensuring database '$POSTGRES_DB' exists..."
+    db_exists="$(psql -h localhost -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d postgres -Atqc "SELECT 1 FROM pg_database WHERE datname = '$POSTGRES_DB'")"
+    if [ "$db_exists" != "1" ]; then
+      psql -h localhost -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d postgres -v ON_ERROR_STOP=1 \
+        -c "CREATE DATABASE \"$POSTGRES_DB\"" \
+        > /dev/null
+    fi
+  else
+    echo "==> psql not found, skipping database existence check (assuming '$POSTGRES_DB' exists)"
+  fi
 fi
 
 echo "✓ PostgreSQL ready. Application database: $POSTGRES_DB"

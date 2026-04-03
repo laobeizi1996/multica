@@ -212,6 +212,31 @@ type IssueToLabel struct {
 	LabelID pgtype.UUID `json:"label_id"`
 }
 
+type IssueToProject struct {
+	IssueID     pgtype.UUID        `json:"issue_id"`
+	ProjectID   pgtype.UUID        `json:"project_id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	IsPrimary   bool               `json:"is_primary"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type KnowledgeCaptureRun struct {
+	ID              pgtype.UUID        `json:"id"`
+	WorkspaceID     pgtype.UUID        `json:"workspace_id"`
+	IssueID         pgtype.UUID        `json:"issue_id"`
+	TriggerSource   string             `json:"trigger_source"`
+	Status          string             `json:"status"`
+	DedupeStatus    string             `json:"dedupe_status"`
+	MergedIntoRunID pgtype.UUID        `json:"merged_into_run_id"`
+	TaskID          pgtype.UUID        `json:"task_id"`
+	PrUrl           pgtype.Text        `json:"pr_url"`
+	SkipReason      pgtype.Text        `json:"skip_reason"`
+	Error           pgtype.Text        `json:"error"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	StartedAt       pgtype.Timestamptz `json:"started_at"`
+	FinishedAt      pgtype.Timestamptz `json:"finished_at"`
+}
+
 type Member struct {
 	ID          pgtype.UUID        `json:"id"`
 	WorkspaceID pgtype.UUID        `json:"workspace_id"`
@@ -229,6 +254,35 @@ type PersonalAccessToken struct {
 	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
 	LastUsedAt  pgtype.Timestamptz `json:"last_used_at"`
 	Revoked     bool               `json:"revoked"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type Project struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	ParentID    pgtype.UUID        `json:"parent_id"`
+	Name        string             `json:"name"`
+	Slug        string             `json:"slug"`
+	Description string             `json:"description"`
+	Kind        string             `json:"kind"`
+	Status      string             `json:"status"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectLabel struct {
+	ID          pgtype.UUID        `json:"id"`
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	Name        string             `json:"name"`
+	Color       string             `json:"color"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProjectToLabel struct {
+	WorkspaceID pgtype.UUID        `json:"workspace_id"`
+	ProjectID   pgtype.UUID        `json:"project_id"`
+	LabelID     pgtype.UUID        `json:"label_id"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -310,4 +364,17 @@ type Workspace struct {
 	Repos        []byte             `json:"repos"`
 	IssuePrefix  string             `json:"issue_prefix"`
 	IssueCounter int32              `json:"issue_counter"`
+}
+
+type WorkspaceKnowledgeRepo struct {
+	WorkspaceID        pgtype.UUID        `json:"workspace_id"`
+	RepoUrl            string             `json:"repo_url"`
+	DefaultBranch      string             `json:"default_branch"`
+	CuratorAgentID     pgtype.UUID        `json:"curator_agent_id"`
+	TemplateVersion    string             `json:"template_version"`
+	Mode               string             `json:"mode"`
+	Enabled            bool               `json:"enabled"`
+	LastBootstrappedAt pgtype.Timestamptz `json:"last_bootstrapped_at"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
 }

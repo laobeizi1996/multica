@@ -65,6 +65,9 @@ export function RepositoriesTab() {
             <p className="text-xs text-muted-foreground">
               GitHub repositories associated with this workspace. Agents use these to clone and work on code.
             </p>
+            <p className="text-xs text-muted-foreground">
+              For the dedicated workspace knowledge repository, use the <span className="font-medium">Knowledge Repo</span> tab.
+            </p>
 
             {repos.map((repo, index) => (
               <div key={index} className="flex gap-2">

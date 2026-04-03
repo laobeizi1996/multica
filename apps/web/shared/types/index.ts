@@ -1,4 +1,4 @@
-export type { Issue, IssueStatus, IssuePriority, IssueAssigneeType, IssueReaction } from "./issue";
+export type { Issue, IssueStatus, IssuePriority, IssueAssigneeType, IssueReaction, IssueProject } from "./issue";
 export type {
   Agent,
   AgentStatus,
@@ -24,7 +24,9 @@ export type {
   RuntimeUpdate,
   RuntimeUpdateStatus,
 } from "./agent";
-export type { Workspace, WorkspaceRepo, Member, MemberRole, User, MemberWithUser } from "./workspace";
+export type { Workspace, WorkspaceRepo, WorkspaceKnowledgeRepo, Member, MemberRole, User, MemberWithUser } from "./workspace";
+export type { Project, ProjectLabel, ProjectTreeNode } from "./project";
+export type { KnowledgeCaptureRun, KnowledgeTemplateEntry } from "./knowledge";
 export type { InboxItem, InboxSeverity, InboxItemType } from "./inbox";
 export type { Comment, CommentType, CommentAuthorType, Reaction } from "./comment";
 export type { TimelineEntry } from "./activity";

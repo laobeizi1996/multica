@@ -82,6 +82,7 @@ export function BoardColumn({
                   size="icon-sm"
                   className="rounded-full text-muted-foreground"
                   onClick={() => useModalStore.getState().open("create-issue", { status })}
+                  aria-label={`Add issue to ${cfg.label}`}
                 >
                   <Plus className="size-3.5" />
                 </Button>

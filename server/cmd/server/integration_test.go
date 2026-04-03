@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/events"
 	"github.com/multica-ai/multica/server/internal/realtime"
 )
@@ -28,8 +29,6 @@ var (
 	testUserID      string
 	testWorkspaceID string
 )
-
-var jwtSecret = []byte("multica-dev-secret-change-in-production")
 
 const (
 	integrationTestEmail         = "integration-test@multica.ai"
@@ -196,7 +195,7 @@ func generateTestJWT(userID, email, name string) (string, error) {
 		"exp":   time.Now().Add(72 * time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
 	})
-	return token.SignedString(jwtSecret)
+	return token.SignedString(auth.JWTSecret())
 }
 
 // ---- Health ----
@@ -381,7 +380,7 @@ func TestInvalidJWT(t *testing.T) {
 		}()},
 		{"expired token", func() string {
 			claims := jwt.MapClaims{"sub": "test", "exp": time.Now().Add(-time.Hour).Unix()}
-			t, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(jwtSecret)
+			t, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(auth.JWTSecret())
 			return t
 		}()},
 	}

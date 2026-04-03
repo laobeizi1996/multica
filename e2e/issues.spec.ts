@@ -15,32 +15,34 @@ test.describe("Issues", () => {
   });
 
   test("issues page loads with board view", async ({ page }) => {
-    await expect(page.locator("text=All Issues")).toBeVisible();
+    await expect(page.getByRole("button", { name: "All" })).toBeVisible();
 
-    // Board columns should be visible
-    await expect(page.locator("text=Backlog")).toBeVisible();
-    await expect(page.locator("text=Todo")).toBeVisible();
-    await expect(page.locator("text=In Progress")).toBeVisible();
+    await expect(page.getByText("Backlog")).toBeVisible();
+    await expect(page.getByText("Todo")).toBeVisible();
+    await expect(page.getByText("In Progress")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add issue to Backlog" })).toBeVisible();
   });
 
   test("can switch between board and list view", async ({ page }) => {
-    await expect(page.locator("text=All Issues")).toBeVisible();
+    await expect(page.getByRole("button", { name: "View mode" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add issue to Backlog" })).toBeVisible();
 
-    // Switch to list view
-    await page.click("text=List");
-    await expect(page.locator("text=All Issues")).toBeVisible();
+    await page.getByRole("button", { name: "View mode" }).click();
+    await page.getByRole("menuitem", { name: "List" }).click();
+    await expect(page.getByRole("button", { name: "Add issue to Backlog" })).not.toBeVisible();
+    await expect(page.getByText("Backlog")).toBeVisible();
 
-    // Switch back to board view
-    await page.click("text=Board");
-    await expect(page.locator("text=Backlog")).toBeVisible();
+    await page.getByRole("button", { name: "View mode" }).click();
+    await page.getByRole("menuitem", { name: "Board" }).click();
+    await expect(page.getByRole("button", { name: "Add issue to Backlog" })).toBeVisible();
   });
 
   test("can create a new issue", async ({ page }) => {
-    await page.click("text=New Issue");
+    await page.getByRole("button", { name: "New issue" }).click();
 
     const title = "E2E Created " + Date.now();
-    await page.fill('input[placeholder="Issue title..."]', title);
-    await page.click("text=Create");
+    await page.getByRole("textbox", { name: "Issue title" }).fill(title);
+    await page.getByRole("button", { name: "Create Issue" }).click();
 
     // New issue should appear on the page
     await expect(page.locator(`text=${title}`).first()).toBeVisible({
@@ -54,7 +56,7 @@ test.describe("Issues", () => {
 
     // Reload to see the new issue
     await page.reload();
-    await expect(page.locator("text=All Issues")).toBeVisible();
+    await expect(page.getByRole("button", { name: "All" })).toBeVisible();
 
     // Navigate to the issue detail
     const issueLink = page.locator(`a[href="/issues/${issue.id}"]`);
@@ -72,17 +74,13 @@ test.describe("Issues", () => {
   });
 
   test("can cancel issue creation", async ({ page }) => {
-    await page.click("text=New Issue");
+    await page.getByRole("button", { name: "New issue" }).click();
 
-    await expect(
-      page.locator('input[placeholder="Issue title..."]'),
-    ).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Issue title" })).toBeVisible();
 
-    await page.click("text=Cancel");
+    await page.getByRole("button", { name: "Close issue modal" }).click();
 
-    await expect(
-      page.locator('input[placeholder="Issue title..."]'),
-    ).not.toBeVisible();
-    await expect(page.locator("text=New Issue")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Issue title" })).not.toBeVisible();
+    await expect(page.getByRole("button", { name: "New issue" })).toBeVisible();
   });
 });

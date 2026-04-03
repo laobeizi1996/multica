@@ -16,26 +16,19 @@ test.describe("Comments", () => {
   });
 
   test("can add a comment on an issue", async ({ page }) => {
-    // Wait for issues to load and click first one
     const issueLink = page.locator('a[href^="/issues/"]').first();
     await expect(issueLink).toBeVisible({ timeout: 5000 });
     await issueLink.click();
     await page.waitForURL(/\/issues\/[\w-]+/);
 
-    // Wait for issue detail to load
     await expect(page.locator("text=Properties")).toBeVisible();
 
-    // Type a comment
     const commentText = "E2E comment " + Date.now();
-    const commentInput = page.locator(
-      'input[placeholder="Leave a comment..."]',
-    );
-    await commentInput.fill(commentText);
+    const commentEditor = page.locator(".rich-text-editor").last();
+    await commentEditor.click();
+    await page.keyboard.type(commentText);
+    await page.getByRole("button", { name: "Submit comment" }).click();
 
-    // Submit the comment
-    await page.locator('form button[type="submit"]').last().click();
-
-    // Comment should appear in the activity section
     await expect(page.locator(`text=${commentText}`)).toBeVisible({
       timeout: 5000,
     });
@@ -49,8 +42,7 @@ test.describe("Comments", () => {
 
     await expect(page.locator("text=Properties")).toBeVisible();
 
-    // Submit button should be disabled when input is empty
-    const submitBtn = page.locator('form button[type="submit"]').last();
+    const submitBtn = page.getByRole("button", { name: "Submit comment" });
     await expect(submitBtn).toBeDisabled();
   });
 });

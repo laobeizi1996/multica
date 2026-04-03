@@ -56,9 +56,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar";
 import { ActorAvatar } from "@/components/common/actor-avatar";
-import type { UpdateIssueRequest, IssueStatus, IssuePriority, TimelineEntry } from "@/shared/types";
+import type { UpdateIssueRequest, Issue, IssueStatus, IssuePriority, TimelineEntry } from "@/shared/types";
 import { ALL_STATUSES, STATUS_CONFIG, PRIORITY_ORDER, PRIORITY_CONFIG } from "@/features/issues/config";
-import { StatusIcon, PriorityIcon, DueDatePicker, AssigneePicker, canAssignAgent } from "@/features/issues/components";
+import {
+  StatusIcon,
+  PriorityIcon,
+  DueDatePicker,
+  AssigneePicker,
+  ProjectPicker,
+  canAssignAgent,
+} from "@/features/issues/components";
 import { CommentCard } from "./comment-card";
 import { CommentInput } from "./comment-input";
 import { AgentLiveCard, TaskRunHistory } from "./agent-live-card";
@@ -274,11 +281,16 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
     (updates: Partial<UpdateIssueRequest>) => {
       if (!issue) return;
       const prev = { ...issue };
-      useIssueStore.getState().updateIssue(id, updates);
-      api.updateIssue(id, updates).catch(() => {
-        useIssueStore.getState().updateIssue(id, prev);
-        toast.error("Failed to update issue");
-      });
+      useIssueStore.getState().updateIssue(id, updates as Partial<Issue>);
+      api
+        .updateIssue(id, updates)
+        .then((updatedIssue) => {
+          useIssueStore.getState().updateIssue(id, updatedIssue);
+        })
+        .catch(() => {
+          useIssueStore.getState().updateIssue(id, prev);
+          toast.error("Failed to update issue");
+        });
     },
     [issue, id],
   );
@@ -324,6 +336,11 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
       </div>
     );
   }
+
+  const projectIds = Array.from(new Set([
+    ...(issue.projects ?? []).map((project) => project.id),
+    ...(issue.primary_project_id ? [issue.primary_project_id] : []),
+  ]));
 
   return (
     <ResizablePanelGroup orientation="horizontal" className="flex-1 min-h-0" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
@@ -942,6 +959,21 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
                 <DueDatePicker
                   dueDate={issue.due_date}
                   onUpdate={handleUpdateField}
+                />
+              </PropRow>
+
+              {/* Projects */}
+              <PropRow label="Projects">
+                <ProjectPicker
+                  projectIds={projectIds}
+                  primaryProjectId={issue.primary_project_id ?? null}
+                  onChange={({ project_ids, primary_project_id }) => {
+                    handleUpdateField({
+                      project_ids,
+                      primary_project_id,
+                    });
+                  }}
+                  align="start"
                 />
               </PropRow>
             </div>}

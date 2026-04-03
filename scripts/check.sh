@@ -30,7 +30,7 @@ BACKEND_PID=""
 FRONTEND_PID=""
 STARTED_BACKEND=false
 STARTED_FRONTEND=false
-EXIT_CODE=0
+EXIT_CODE=1
 
 # --------------------------------------------------------------------------
 # Cleanup: kill only services this script started
@@ -134,3 +134,5 @@ fi
 echo ""
 echo "==> [5/5] E2E tests (Playwright)..."
 pnpm exec playwright test || { EXIT_CODE=1; exit 1; }
+
+EXIT_CODE=0

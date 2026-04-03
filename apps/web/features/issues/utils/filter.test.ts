@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { Issue } from "@/shared/types";
+import type { Issue, IssueProject, Project } from "@/shared/types";
 import { filterIssues, type IssueFilters } from "./filter";
 
 const NO_FILTER: IssueFilters = {
@@ -8,6 +8,9 @@ const NO_FILTER: IssueFilters = {
   assigneeFilters: [],
   includeNoAssignee: false,
   creatorFilters: [],
+  projectFilters: [],
+  projectLabelFilters: [],
+  projects: [],
 };
 
 function makeIssue(overrides: Partial<Issue> = {}): Issue {
@@ -33,11 +36,110 @@ function makeIssue(overrides: Partial<Issue> = {}): Issue {
   };
 }
 
+function makeIssueProject(id: string): IssueProject {
+  return {
+    id,
+    workspace_id: "ws-1",
+    parent_id: null,
+    name: id,
+    slug: id,
+    description: "",
+    kind: "general",
+    status: "active",
+  };
+}
+
 const issues: Issue[] = [
-  makeIssue({ id: "1", status: "todo", priority: "high", assignee_type: "member", assignee_id: "u-1", creator_type: "member", creator_id: "u-1" }),
-  makeIssue({ id: "2", status: "in_progress", priority: "medium", assignee_type: "agent", assignee_id: "a-1", creator_type: "agent", creator_id: "a-1" }),
-  makeIssue({ id: "3", status: "done", priority: "low", assignee_type: null, assignee_id: null, creator_type: "member", creator_id: "u-2" }),
-  makeIssue({ id: "4", status: "todo", priority: "urgent", assignee_type: "member", assignee_id: "u-2", creator_type: "member", creator_id: "u-1" }),
+  makeIssue({
+    id: "1",
+    status: "todo",
+    priority: "high",
+    assignee_type: "member",
+    assignee_id: "u-1",
+    creator_type: "member",
+    creator_id: "u-1",
+    projects: [makeIssueProject("p-1")],
+    primary_project_id: "p-1",
+  }),
+  makeIssue({
+    id: "2",
+    status: "in_progress",
+    priority: "medium",
+    assignee_type: "agent",
+    assignee_id: "a-1",
+    creator_type: "agent",
+    creator_id: "a-1",
+    projects: [makeIssueProject("p-2")],
+    primary_project_id: "p-2",
+  }),
+  makeIssue({
+    id: "3",
+    status: "done",
+    priority: "low",
+    assignee_type: null,
+    assignee_id: null,
+    creator_type: "member",
+    creator_id: "u-2",
+  }),
+  makeIssue({
+    id: "4",
+    status: "todo",
+    priority: "urgent",
+    assignee_type: "member",
+    assignee_id: "u-2",
+    creator_type: "member",
+    creator_id: "u-1",
+    projects: [makeIssueProject("p-3")],
+    primary_project_id: "p-3",
+  }),
+];
+
+const projects: Project[] = [
+  {
+    id: "p-1",
+    workspace_id: "ws-1",
+    parent_id: null,
+    name: "General",
+    slug: "general",
+    description: "",
+    kind: "general",
+    status: "active",
+    labels: [
+      { id: "l-frontend", workspace_id: "ws-1", name: "Frontend", color: "blue", created_at: "", updated_at: "" },
+    ],
+    created_at: "",
+    updated_at: "",
+  },
+  {
+    id: "p-2",
+    workspace_id: "ws-1",
+    parent_id: null,
+    name: "Infra",
+    slug: "infra",
+    description: "",
+    kind: "theme",
+    status: "active",
+    labels: [
+      { id: "l-backend", workspace_id: "ws-1", name: "Backend", color: "green", created_at: "", updated_at: "" },
+    ],
+    created_at: "",
+    updated_at: "",
+  },
+  {
+    id: "p-3",
+    workspace_id: "ws-1",
+    parent_id: null,
+    name: "Cross",
+    slug: "cross",
+    description: "",
+    kind: "epic",
+    status: "active",
+    labels: [
+      { id: "l-frontend", workspace_id: "ws-1", name: "Frontend", color: "blue", created_at: "", updated_at: "" },
+    ],
+    created_at: "",
+    updated_at: "",
+  },
 ];
 
 describe("filterIssues", () => {
@@ -112,5 +214,22 @@ describe("filterIssues", () => {
       creatorFilters: [{ type: "member", id: "u-1" }],
     });
     expect(result.map((i) => i.id)).toEqual(["4"]);
+  });
+
+  it("filters by project", () => {
+    const result = filterIssues(issues, {
+      ...NO_FILTER,
+      projectFilters: ["p-2"],
+    });
+    expect(result.map((i) => i.id)).toEqual(["2"]);
+  });
+
+  it("filters by project label", () => {
+    const result = filterIssues(issues, {
+      ...NO_FILTER,
+      projectLabelFilters: ["l-frontend"],
+      projects,
+    });
+    expect(result.map((i) => i.id)).toEqual(["1", "4"]);
   });
 });

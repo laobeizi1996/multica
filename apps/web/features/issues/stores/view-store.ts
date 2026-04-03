@@ -44,6 +44,8 @@ export interface IssueViewState {
   assigneeFilters: ActorFilterValue[];
   includeNoAssignee: boolean;
   creatorFilters: ActorFilterValue[];
+  projectFilters: string[];
+  projectLabelFilters: string[];
   sortBy: SortField;
   sortDirection: SortDirection;
   cardProperties: CardProperties;
@@ -54,6 +56,8 @@ export interface IssueViewState {
   toggleAssigneeFilter: (value: ActorFilterValue) => void;
   toggleNoAssignee: () => void;
   toggleCreatorFilter: (value: ActorFilterValue) => void;
+  toggleProjectFilter: (projectId: string) => void;
+  toggleProjectLabelFilter: (labelId: string) => void;
   hideStatus: (status: IssueStatus) => void;
   showStatus: (status: IssueStatus) => void;
   clearFilters: () => void;
@@ -70,6 +74,8 @@ export const viewStoreSlice = (set: StoreApi<IssueViewState>["setState"]): Issue
   assigneeFilters: [],
   includeNoAssignee: false,
   creatorFilters: [],
+  projectFilters: [],
+  projectLabelFilters: [],
   sortBy: "position",
   sortDirection: "asc",
   cardProperties: {
@@ -121,6 +127,18 @@ export const viewStoreSlice = (set: StoreApi<IssueViewState>["setState"]): Issue
           : [...state.creatorFilters, value],
       };
     }),
+  toggleProjectFilter: (projectId) =>
+    set((state) => ({
+      projectFilters: state.projectFilters.includes(projectId)
+        ? state.projectFilters.filter((id) => id !== projectId)
+        : [...state.projectFilters, projectId],
+    })),
+  toggleProjectLabelFilter: (labelId) =>
+    set((state) => ({
+      projectLabelFilters: state.projectLabelFilters.includes(labelId)
+        ? state.projectLabelFilters.filter((id) => id !== labelId)
+        : [...state.projectLabelFilters, labelId],
+    })),
   hideStatus: (status) =>
     set((state) => {
       // If no filter active, activate filter with all EXCEPT this one
@@ -144,6 +162,8 @@ export const viewStoreSlice = (set: StoreApi<IssueViewState>["setState"]): Issue
       assigneeFilters: [],
       includeNoAssignee: false,
       creatorFilters: [],
+      projectFilters: [],
+      projectLabelFilters: [],
     }),
   setSortBy: (field) => set({ sortBy: field }),
   setSortDirection: (dir) => set({ sortDirection: dir }),
@@ -171,6 +191,8 @@ export const viewStorePersistOptions = (name: string) => ({
     assigneeFilters: state.assigneeFilters,
     includeNoAssignee: state.includeNoAssignee,
     creatorFilters: state.creatorFilters,
+    projectFilters: state.projectFilters,
+    projectLabelFilters: state.projectLabelFilters,
     sortBy: state.sortBy,
     sortDirection: state.sortDirection,
     cardProperties: state.cardProperties,

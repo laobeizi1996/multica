@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, Check, ChevronRight, Maximize2, Minimize2, UserMinus, X as XIcon } from "lucide-react";
+import { CalendarDays, Check, ChevronRight, FolderTree, Maximize2, Minimize2, UserMinus, X as XIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { IssueStatus, IssuePriority, IssueAssigneeType } from "@/shared/types";
@@ -27,7 +27,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Button } from "@/components/ui/button";
 import { RichTextEditor, type RichTextEditorRef } from "@/components/common/rich-text-editor";
 import { TitleEditor } from "@/components/common/title-editor";
-import { StatusIcon, PriorityIcon } from "@/features/issues/components";
+import { StatusIcon, PriorityIcon, ProjectPicker } from "@/features/issues/components";
 import { ALL_STATUSES, STATUS_CONFIG, PRIORITY_ORDER, PRIORITY_CONFIG } from "@/features/issues/config";
 import { useWorkspaceStore, useActorName } from "@/features/workspace";
 import { useIssueStore } from "@/features/issues";
@@ -84,6 +84,8 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
   const [assigneeType, setAssigneeType] = useState<IssueAssigneeType | undefined>(draft.assigneeType);
   const [assigneeId, setAssigneeId] = useState<string | undefined>(draft.assigneeId);
   const [dueDate, setDueDate] = useState<string | null>(draft.dueDate);
+  const [projectIds, setProjectIds] = useState<string[]>(draft.projectIds ?? []);
+  const [primaryProjectId, setPrimaryProjectId] = useState<string | null>(draft.primaryProjectId ?? null);
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Assignee popover
@@ -117,6 +119,17 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
     setDraft({ assigneeType: type, assigneeId: id });
   };
   const updateDueDate = (v: string | null) => { setDueDate(v); setDraft({ dueDate: v }); };
+  const updateProjects = (projectSelection: {
+    project_ids: string[];
+    primary_project_id: string | null;
+  }) => {
+    setProjectIds(projectSelection.project_ids);
+    setPrimaryProjectId(projectSelection.primary_project_id);
+    setDraft({
+      projectIds: projectSelection.project_ids,
+      primaryProjectId: projectSelection.primary_project_id,
+    });
+  };
 
   const handleSubmit = async () => {
     if (!title.trim() || submitting) return;
@@ -130,6 +143,8 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
         assignee_type: assigneeType,
         assignee_id: assigneeId,
         due_date: dueDate || undefined,
+        project_ids: projectIds.length > 0 ? projectIds : undefined,
+        primary_project_id: projectIds.length > 0 ? (primaryProjectId ?? undefined) : undefined,
       });
       useIssueStore.getState().addIssue(issue);
       clearDraft();
@@ -207,6 +222,7 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
                   <button
                     onClick={onClose}
                     className="rounded-sm p-1.5 opacity-70 hover:opacity-100 hover:bg-accent/60 transition-all cursor-pointer"
+                    aria-label="Close issue modal"
                   >
                     <XIcon className="size-4" />
                   </button>
@@ -414,6 +430,26 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
               )}
             </PopoverContent>
           </Popover>
+
+          {/* Projects */}
+          <ProjectPicker
+            projectIds={projectIds}
+            primaryProjectId={primaryProjectId}
+            onChange={updateProjects}
+            triggerRender={<PillButton />}
+            trigger={
+              <>
+                <FolderTree className="size-3.5 text-muted-foreground" />
+                {projectIds.length > 0 ? (
+                  <span>Projects {projectIds.length}</span>
+                ) : (
+                  <span className="text-muted-foreground">Projects</span>
+                )}
+              </>
+            }
+            align="start"
+            placeholder="Projects"
+          />
         </div>
 
         {/* Footer */}

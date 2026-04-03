@@ -19,7 +19,11 @@ import type {
   IssueReaction,
   Workspace,
   WorkspaceRepo,
+  WorkspaceKnowledgeRepo,
   MemberWithUser,
+  Project,
+  ProjectLabel,
+  ProjectTreeNode,
   User,
   Skill,
   CreateSkillRequest,
@@ -35,6 +39,7 @@ import type {
   TimelineEntry,
   TaskMessagePayload,
   Attachment,
+  KnowledgeTemplateEntry,
 } from "@/shared/types";
 import { type Logger, noopLogger } from "@/shared/logger";
 
@@ -164,6 +169,8 @@ export class ApiClient {
     if (params?.status) search.set("status", params.status);
     if (params?.priority) search.set("priority", params.priority);
     if (params?.assignee_id) search.set("assignee_id", params.assignee_id);
+    if (params?.project_id) search.set("project_id", params.project_id);
+    if (params?.project_label_id) search.set("project_label_id", params.project_label_id);
     return this.fetch(`/api/issues?${search}`);
   }
 
@@ -437,6 +444,145 @@ export class ApiClient {
     return this.fetch(`/api/workspaces/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
+    });
+  }
+
+  async getWorkspaceKnowledgeRepo(workspaceId: string): Promise<WorkspaceKnowledgeRepo> {
+    return this.fetch(`/api/workspaces/${workspaceId}/knowledge-repo`);
+  }
+
+  async updateWorkspaceKnowledgeRepo(
+    workspaceId: string,
+    data: {
+      repo_url?: string;
+      default_branch?: string;
+      curator_agent_id?: string | null;
+      template_version?: string;
+      mode?: "pr";
+      enabled?: boolean;
+    }
+  ): Promise<WorkspaceKnowledgeRepo> {
+    return this.fetch(`/api/workspaces/${workspaceId}/knowledge-repo`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async bootstrapWorkspaceKnowledgeRepo(workspaceId: string): Promise<{
+    knowledge_repo: WorkspaceKnowledgeRepo;
+    template_version: string;
+    entries: KnowledgeTemplateEntry[];
+  }> {
+    return this.fetch(`/api/workspaces/${workspaceId}/knowledge-repo/bootstrap`, {
+      method: "POST",
+    });
+  }
+
+  async validateWorkspaceKnowledgeRepo(workspaceId: string, entries: KnowledgeTemplateEntry[]): Promise<{
+    valid: boolean;
+    errors: string[];
+    warnings: string[];
+  }> {
+    return this.fetch(`/api/workspaces/${workspaceId}/knowledge-repo/validate`, {
+      method: "POST",
+      body: JSON.stringify({ entries }),
+    });
+  }
+
+  async createWorkspaceKnowledgeRepoFromGitHub(
+    workspaceId: string,
+    data: {
+      owner?: string;
+      repo_name?: string;
+      visibility?: "private" | "public" | "internal";
+      description?: string;
+      default_branch?: string;
+      add_to_workspace_repos?: boolean;
+    },
+  ): Promise<{
+    knowledge_repo: WorkspaceKnowledgeRepo;
+    github_repo: {
+      name_with_owner: string;
+      url: string;
+      default_branch: string;
+      visibility: "private" | "public" | "internal";
+    };
+  }> {
+    return this.fetch(`/api/workspaces/${workspaceId}/knowledge-repo/create-github`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listProjects(workspaceId: string): Promise<Project[]> {
+    return this.fetch(`/api/workspaces/${workspaceId}/projects`);
+  }
+
+  async listProjectTree(workspaceId: string): Promise<ProjectTreeNode[]> {
+    return this.fetch(`/api/workspaces/${workspaceId}/projects/tree`);
+  }
+
+  async createProject(workspaceId: string, data: {
+    parent_id?: string | null;
+    name: string;
+    slug?: string;
+    description?: string;
+    kind?: "portfolio" | "epic" | "theme" | "general";
+    status?: "active" | "archived";
+    label_ids?: string[];
+  }): Promise<Project> {
+    return this.fetch(`/api/workspaces/${workspaceId}/projects`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateProject(workspaceId: string, projectId: string, data: {
+    parent_id?: string | null;
+    name?: string;
+    slug?: string;
+    description?: string;
+    kind?: "portfolio" | "epic" | "theme" | "general";
+    status?: "active" | "archived";
+    label_ids?: string[];
+  }): Promise<Project> {
+    return this.fetch(`/api/workspaces/${workspaceId}/projects/${projectId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteProject(workspaceId: string, projectId: string): Promise<void> {
+    await this.fetch(`/api/workspaces/${workspaceId}/projects/${projectId}`, {
+      method: "DELETE",
+    });
+  }
+
+  async listProjectLabels(workspaceId: string): Promise<ProjectLabel[]> {
+    return this.fetch(`/api/workspaces/${workspaceId}/project-labels`);
+  }
+
+  async createProjectLabel(workspaceId: string, data: { name: string; color?: string }): Promise<ProjectLabel> {
+    return this.fetch(`/api/workspaces/${workspaceId}/project-labels`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateProjectLabel(
+    workspaceId: string,
+    labelId: string,
+    data: { name?: string; color?: string }
+  ): Promise<ProjectLabel> {
+    return this.fetch(`/api/workspaces/${workspaceId}/project-labels/${labelId}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteProjectLabel(workspaceId: string, labelId: string): Promise<void> {
+    await this.fetch(`/api/workspaces/${workspaceId}/project-labels/${labelId}`, {
+      method: "DELETE",
     });
   }
 

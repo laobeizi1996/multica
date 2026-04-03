@@ -1,10 +1,28 @@
 -- name: ListIssues :many
-SELECT * FROM issue
-WHERE workspace_id = $1
-  AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
-  AND (sqlc.narg('priority')::text IS NULL OR priority = sqlc.narg('priority'))
-  AND (sqlc.narg('assignee_id')::uuid IS NULL OR assignee_id = sqlc.narg('assignee_id'))
-ORDER BY position ASC, created_at DESC
+SELECT i.* FROM issue i
+WHERE i.workspace_id = $1
+  AND (sqlc.narg('status')::text IS NULL OR i.status = sqlc.narg('status'))
+  AND (sqlc.narg('priority')::text IS NULL OR i.priority = sqlc.narg('priority'))
+  AND (sqlc.narg('assignee_id')::uuid IS NULL OR i.assignee_id = sqlc.narg('assignee_id'))
+  AND (
+    sqlc.narg('project_id')::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM issue_to_project itp
+      WHERE itp.issue_id = i.id
+        AND itp.project_id = sqlc.narg('project_id')
+    )
+  )
+  AND (
+    sqlc.narg('project_label_id')::uuid IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM issue_to_project itp
+      JOIN project_to_label ptl ON ptl.project_id = itp.project_id
+      WHERE itp.issue_id = i.id
+        AND ptl.label_id = sqlc.narg('project_label_id')
+    )
+  )
+ORDER BY i.position ASC, i.created_at DESC
 LIMIT $2 OFFSET $3;
 
 -- name: GetIssue :one

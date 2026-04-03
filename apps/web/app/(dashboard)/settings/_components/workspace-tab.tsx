@@ -125,6 +125,7 @@ export function WorkspaceTab() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 disabled={!canManageWorkspace}
+                aria-label="Workspace name"
                 className="mt-1"
               />
             </div>
@@ -135,6 +136,7 @@ export function WorkspaceTab() {
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
                 disabled={!canManageWorkspace}
+                aria-label="Workspace description"
                 className="mt-1 resize-none"
                 placeholder="What does this workspace focus on?"
               />
@@ -146,6 +148,7 @@ export function WorkspaceTab() {
                 onChange={(e) => setContext(e.target.value)}
                 rows={4}
                 disabled={!canManageWorkspace}
+                aria-label="Workspace context"
                 className="mt-1 resize-none"
                 placeholder="Background information and context for AI agents working in this workspace"
               />
@@ -206,7 +209,7 @@ export function WorkspaceTab() {
                 <div>
                   <p className="text-sm font-medium text-destructive">Delete workspace</p>
                   <p className="text-xs text-muted-foreground">
-                    Permanently delete this workspace and its data.
+                    Permanently delete this workspace to clear all issues, projects, and data.
                   </p>
                 </div>
                 <Button
@@ -218,6 +221,12 @@ export function WorkspaceTab() {
                   {actionId === "delete-workspace" ? "Deleting..." : "Delete workspace"}
                 </Button>
               </div>
+            )}
+
+            {!isOwner && (
+              <p className="border-t pt-3 text-xs text-muted-foreground">
+                Only workspace owner can delete the workspace. Ask the owner if you need to clear it.
+              </p>
             )}
           </CardContent>
         </Card>

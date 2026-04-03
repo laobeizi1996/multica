@@ -182,6 +182,13 @@ func (h *Handler) findOrCreateUser(ctx context.Context, email string) (db.User, 
 			Email: email,
 		})
 		if err != nil {
+			// Another concurrent request may have created this email first.
+			if isUniqueViolation(err) {
+				existing, lookupErr := h.Queries.GetUserByEmail(ctx, email)
+				if lookupErr == nil {
+					return existing, nil
+				}
+			}
 			return db.User{}, err
 		}
 	}

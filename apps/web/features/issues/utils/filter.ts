@@ -1,4 +1,9 @@
-import type { Issue, IssueStatus, IssuePriority } from "@/shared/types";
+import type {
+  Issue,
+  IssueStatus,
+  IssuePriority,
+  Project,
+} from "@/shared/types";
 import type { ActorFilterValue } from "@/features/issues/stores/view-store";
 
 export interface IssueFilters {
@@ -7,6 +12,20 @@ export interface IssueFilters {
   assigneeFilters: ActorFilterValue[];
   includeNoAssignee: boolean;
   creatorFilters: ActorFilterValue[];
+  projectFilters: string[];
+  projectLabelFilters: string[];
+  projects?: Project[];
+}
+
+function getIssueProjectIds(issue: Issue): string[] {
+  const ids = new Set<string>();
+  for (const project of issue.projects ?? []) {
+    ids.add(project.id);
+  }
+  if (issue.primary_project_id) {
+    ids.add(issue.primary_project_id);
+  }
+  return Array.from(ids);
 }
 
 /**
@@ -19,8 +38,18 @@ export interface IssueFilters {
  * - When both → show matching assignees + unassigned
  */
 export function filterIssues(issues: Issue[], filters: IssueFilters): Issue[] {
-  const { statusFilters, priorityFilters, assigneeFilters, includeNoAssignee, creatorFilters } = filters;
+  const {
+    statusFilters,
+    priorityFilters,
+    assigneeFilters,
+    includeNoAssignee,
+    creatorFilters,
+    projectFilters = [],
+    projectLabelFilters = [],
+    projects = [],
+  } = filters;
   const hasAssigneeFilter = assigneeFilters.length > 0 || includeNoAssignee;
+  const projectById = new Map(projects.map((project) => [project.id, project]));
 
   return issues.filter((issue) => {
     if (statusFilters.length > 0 && !statusFilters.includes(issue.status))
@@ -51,6 +80,30 @@ export function filterIssues(issues: Issue[], filters: IssueFilters): Issue[] {
       )
     ) {
       return false;
+    }
+
+    const issueProjectIds = getIssueProjectIds(issue);
+    if (
+      projectFilters.length > 0 &&
+      !issueProjectIds.some((projectId) => projectFilters.includes(projectId))
+    ) {
+      return false;
+    }
+
+    if (projectLabelFilters.length > 0) {
+      if (issueProjectIds.length === 0) return false;
+      const issueLabelIds = new Set<string>();
+      for (const projectId of issueProjectIds) {
+        const project = projectById.get(projectId);
+        if (!project) continue;
+        for (const label of project.labels ?? []) {
+          issueLabelIds.add(label.id);
+        }
+      }
+
+      if (!projectLabelFilters.some((labelId) => issueLabelIds.has(labelId))) {
+        return false;
+      }
     }
 
     return true;

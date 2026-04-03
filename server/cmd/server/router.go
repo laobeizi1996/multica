@@ -126,6 +126,11 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 					r.Get("/", h.GetWorkspace)
 					r.Get("/members", h.ListMembersWithUser)
 					r.Post("/leave", h.LeaveWorkspace)
+					r.Get("/knowledge-repo", h.GetWorkspaceKnowledgeRepo)
+					r.Post("/knowledge-repo/validate", h.ValidateWorkspaceKnowledgeRepo)
+					r.Get("/projects", h.ListProjects)
+					r.Get("/projects/tree", h.ListProjectTree)
+					r.Get("/project-labels", h.ListProjectLabels)
 				})
 				// Admin-level access
 				r.Group(func(r chi.Router) {
@@ -133,6 +138,20 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 					r.Put("/", h.UpdateWorkspace)
 					r.Patch("/", h.UpdateWorkspace)
 					r.Post("/members", h.CreateMember)
+					r.Put("/knowledge-repo", h.UpdateWorkspaceKnowledgeRepo)
+					r.Patch("/knowledge-repo", h.UpdateWorkspaceKnowledgeRepo)
+					r.Post("/knowledge-repo/bootstrap", h.BootstrapWorkspaceKnowledgeRepo)
+					r.Post("/knowledge-repo/create-github", h.CreateWorkspaceKnowledgeRepoFromGitHub)
+					r.Post("/projects", h.CreateProject)
+					r.Route("/projects/{projectId}", func(r chi.Router) {
+						r.Patch("/", h.UpdateProject)
+						r.Delete("/", h.DeleteProject)
+					})
+					r.Post("/project-labels", h.CreateProjectLabel)
+					r.Route("/project-labels/{labelId}", func(r chi.Router) {
+						r.Patch("/", h.UpdateProjectLabel)
+						r.Delete("/", h.DeleteProjectLabel)
+					})
 					r.Route("/members/{memberId}", func(r chi.Router) {
 						r.Patch("/", h.UpdateMember)
 						r.Delete("/", h.DeleteMember)

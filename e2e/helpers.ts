@@ -7,8 +7,8 @@ const DEFAULT_E2E_WORKSPACE = "e2e-workspace";
 
 /**
  * Log in as the default E2E user and ensure the workspace exists first.
- * Authenticates via API (send-code → DB read → verify-code), then injects
- * the token into localStorage so the browser session is authenticated.
+ * Authenticates via API (send-code), then injects the token into localStorage
+ * so the browser session is authenticated.
  */
 export async function loginAsDefault(page: Page) {
   const api = new TestApiClient();
@@ -36,8 +36,6 @@ export async function createTestApi(): Promise<TestApiClient> {
 }
 
 export async function openWorkspaceMenu(page: Page) {
-  // Click the workspace switcher button (has ChevronDown icon)
-  await page.locator("aside button").first().click();
-  // Wait for dropdown to appear
-  await page.locator('[class*="popover"]').waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Workspace menu" }).click();
+  await page.getByText("Log out").waitFor({ state: "visible" });
 }

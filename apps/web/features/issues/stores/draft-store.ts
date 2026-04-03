@@ -10,6 +10,8 @@ interface IssueDraft {
   assigneeType?: IssueAssigneeType;
   assigneeId?: string;
   dueDate: string | null;
+  projectIds: string[];
+  primaryProjectId: string | null;
 }
 
 const EMPTY_DRAFT: IssueDraft = {
@@ -20,6 +22,8 @@ const EMPTY_DRAFT: IssueDraft = {
   assigneeType: undefined,
   assigneeId: undefined,
   dueDate: null,
+  projectIds: [],
+  primaryProjectId: null,
 };
 
 interface IssueDraftStore {

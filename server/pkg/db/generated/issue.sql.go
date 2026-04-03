@@ -190,22 +190,42 @@ func (q *Queries) GetIssueInWorkspace(ctx context.Context, arg GetIssueInWorkspa
 }
 
 const listIssues = `-- name: ListIssues :many
-SELECT id, workspace_id, title, description, status, priority, assignee_type, assignee_id, creator_type, creator_id, parent_issue_id, acceptance_criteria, context_refs, position, due_date, created_at, updated_at, number FROM issue
-WHERE workspace_id = $1
-  AND ($4::text IS NULL OR status = $4)
-  AND ($5::text IS NULL OR priority = $5)
-  AND ($6::uuid IS NULL OR assignee_id = $6)
-ORDER BY position ASC, created_at DESC
+SELECT i.id, i.workspace_id, i.title, i.description, i.status, i.priority, i.assignee_type, i.assignee_id, i.creator_type, i.creator_id, i.parent_issue_id, i.acceptance_criteria, i.context_refs, i.position, i.due_date, i.created_at, i.updated_at, i.number FROM issue i
+WHERE i.workspace_id = $1
+  AND ($4::text IS NULL OR i.status = $4)
+  AND ($5::text IS NULL OR i.priority = $5)
+  AND ($6::uuid IS NULL OR i.assignee_id = $6)
+  AND (
+    $7::uuid IS NULL
+    OR EXISTS (
+      SELECT 1 FROM issue_to_project itp
+      WHERE itp.issue_id = i.id
+        AND itp.project_id = $7
+    )
+  )
+  AND (
+    $8::uuid IS NULL
+    OR EXISTS (
+      SELECT 1
+      FROM issue_to_project itp
+      JOIN project_to_label ptl ON ptl.project_id = itp.project_id
+      WHERE itp.issue_id = i.id
+        AND ptl.label_id = $8
+    )
+  )
+ORDER BY i.position ASC, i.created_at DESC
 LIMIT $2 OFFSET $3
 `
 
 type ListIssuesParams struct {
-	WorkspaceID pgtype.UUID `json:"workspace_id"`
-	Limit       int32       `json:"limit"`
-	Offset      int32       `json:"offset"`
-	Status      pgtype.Text `json:"status"`
-	Priority    pgtype.Text `json:"priority"`
-	AssigneeID  pgtype.UUID `json:"assignee_id"`
+	WorkspaceID    pgtype.UUID `json:"workspace_id"`
+	Limit          int32       `json:"limit"`
+	Offset         int32       `json:"offset"`
+	Status         pgtype.Text `json:"status"`
+	Priority       pgtype.Text `json:"priority"`
+	AssigneeID     pgtype.UUID `json:"assignee_id"`
+	ProjectID      pgtype.UUID `json:"project_id"`
+	ProjectLabelID pgtype.UUID `json:"project_label_id"`
 }
 
 func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]Issue, error) {
@@ -216,6 +236,8 @@ func (q *Queries) ListIssues(ctx context.Context, arg ListIssuesParams) ([]Issue
 		arg.Status,
 		arg.Priority,
 		arg.AssigneeID,
+		arg.ProjectID,
+		arg.ProjectLabelID,
 	)
 	if err != nil {
 		return nil, err

@@ -1,7 +1,14 @@
 "use client";
 
 import { create } from "zustand";
-import type { Workspace, MemberWithUser, Agent, Skill } from "@/shared/types";
+import type {
+  Workspace,
+  MemberWithUser,
+  Agent,
+  Skill,
+  Project,
+  ProjectLabel,
+} from "@/shared/types";
 import { useIssueStore } from "@/features/issues";
 import { useInboxStore } from "@/features/inbox";
 import { useRuntimeStore } from "@/features/runtimes";
@@ -16,6 +23,8 @@ interface WorkspaceState {
   members: MemberWithUser[];
   agents: Agent[];
   skills: Skill[];
+  projects: Project[];
+  projectLabels: ProjectLabel[];
 }
 
 interface WorkspaceActions {
@@ -29,6 +38,8 @@ interface WorkspaceActions {
   updateAgent: (id: string, updates: Partial<Agent>) => void;
   refreshAgents: () => Promise<void>;
   refreshSkills: () => Promise<void>;
+  refreshProjects: () => Promise<void>;
+  refreshProjectLabels: () => Promise<void>;
   upsertSkill: (skill: Skill) => void;
   removeSkill: (id: string) => void;
   createWorkspace: (data: {
@@ -51,6 +62,8 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   members: [],
   agents: [],
   skills: [],
+  projects: [],
+  projectLabels: [],
 
   // Actions
   hydrateWorkspace: async (wsList, preferredWorkspaceId) => {
@@ -66,7 +79,14 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     if (!nextWorkspace) {
       api.setWorkspaceId(null);
       localStorage.removeItem("multica_workspace_id");
-      set({ workspace: null, members: [], agents: [], skills: [] });
+      set({
+        workspace: null,
+        members: [],
+        agents: [],
+        skills: [],
+        projects: [],
+        projectLabels: [],
+      });
       return null;
     }
 
@@ -75,15 +95,24 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     set({ workspace: nextWorkspace });
 
     logger.debug("hydrate workspace", nextWorkspace.name, nextWorkspace.id);
-    const [nextMembers, nextAgents, nextSkills] = await Promise.all([
+    const [nextMembers, nextAgents, nextSkills, nextProjects, nextProjectLabels] =
+      await Promise.all([
       api.listMembers(nextWorkspace.id),
       api.listAgents({ workspace_id: nextWorkspace.id }),
       api.listSkills().catch(() => [] as Skill[]),
+      api.listProjects(nextWorkspace.id).catch(() => [] as Project[]),
+      api.listProjectLabels(nextWorkspace.id).catch(() => [] as ProjectLabel[]),
       useIssueStore.getState().fetch(),
       useInboxStore.getState().fetch(),
-    ]);
+      ]);
     logger.info("hydrate complete", "members:", nextMembers.length, "agents:", nextAgents.length);
-    set({ members: nextMembers, agents: nextAgents, skills: nextSkills });
+    set({
+      members: nextMembers,
+      agents: nextAgents,
+      skills: nextSkills,
+      projects: nextProjects,
+      projectLabels: nextProjectLabels,
+    });
 
     return nextWorkspace;
   },
@@ -105,7 +134,14 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
     useIssueStore.getState().setIssues([]);
     useInboxStore.getState().setItems([]);
     useRuntimeStore.getState().setRuntimes([]);
-    set({ workspace: ws, members: [], agents: [], skills: [] });
+    set({
+      workspace: ws,
+      members: [],
+      agents: [],
+      skills: [],
+      projects: [],
+      projectLabels: [],
+    });
 
     await hydrateWorkspace(workspaces, ws.id);
   },
@@ -150,6 +186,20 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
       files: s.files ?? filesById.get(s.id) ?? [],
     }));
     set({ skills: merged });
+  },
+
+  refreshProjects: async () => {
+    const { workspace } = get();
+    if (!workspace) return;
+    const projects = await api.listProjects(workspace.id);
+    set({ projects });
+  },
+
+  refreshProjectLabels: async () => {
+    const { workspace } = get();
+    if (!workspace) return;
+    const projectLabels = await api.listProjectLabels(workspace.id);
+    set({ projectLabels });
   },
 
   upsertSkill: (skill) => {
@@ -204,6 +254,14 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
   clearWorkspace: () => {
     api.setWorkspaceId(null);
     localStorage.removeItem("multica_workspace_id");
-    set({ workspace: null, workspaces: [], members: [], agents: [], skills: [] });
+    set({
+      workspace: null,
+      workspaces: [],
+      members: [],
+      agents: [],
+      skills: [],
+      projects: [],
+      projectLabels: [],
+    });
   },
 }));

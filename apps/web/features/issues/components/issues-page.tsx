@@ -31,6 +31,9 @@ export function IssuesPage() {
   const assigneeFilters = useIssueViewStore((s) => s.assigneeFilters);
   const includeNoAssignee = useIssueViewStore((s) => s.includeNoAssignee);
   const creatorFilters = useIssueViewStore((s) => s.creatorFilters);
+  const projectFilters = useIssueViewStore((s) => s.projectFilters);
+  const projectLabelFilters = useIssueViewStore((s) => s.projectLabelFilters);
+  const projects = useWorkspaceStore((s) => s.projects ?? []);
 
   useEffect(() => {
     initFilterWorkspaceSync();
@@ -50,8 +53,28 @@ export function IssuesPage() {
   }, [allIssues, scope]);
 
   const issues = useMemo(
-    () => filterIssues(scopedIssues, { statusFilters, priorityFilters, assigneeFilters, includeNoAssignee, creatorFilters }),
-    [scopedIssues, statusFilters, priorityFilters, assigneeFilters, includeNoAssignee, creatorFilters],
+    () =>
+      filterIssues(scopedIssues, {
+        statusFilters,
+        priorityFilters,
+        assigneeFilters,
+        includeNoAssignee,
+        creatorFilters,
+        projectFilters,
+        projectLabelFilters,
+        projects,
+      }),
+    [
+      scopedIssues,
+      statusFilters,
+      priorityFilters,
+      assigneeFilters,
+      includeNoAssignee,
+      creatorFilters,
+      projectFilters,
+      projectLabelFilters,
+      projects,
+    ],
   );
 
   const visibleStatuses = useMemo(() => {
