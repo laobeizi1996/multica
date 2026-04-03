@@ -558,12 +558,18 @@ func (h *Handler) CreateWorkspaceKnowledgeRepoFromGitHub(w http.ResponseWriter, 
 		branch = "main"
 	}
 
-	updatedRepo, err := h.Queries.UpsertWorkspaceKnowledgeRepo(r.Context(), db.UpsertWorkspaceKnowledgeRepoParams{
+	entries := knowledge.HarnessTemplate()
+	if err := writeHarnessTemplateToRepo(r.Context(), view.URL, branch, entries); err != nil {
+		writeError(w, http.StatusInternalServerError, "repository created but failed to bootstrap harness template: "+err.Error())
+		return
+	}
+
+	_, err = h.Queries.UpsertWorkspaceKnowledgeRepo(r.Context(), db.UpsertWorkspaceKnowledgeRepoParams{
 		WorkspaceID:        parseUUID(workspaceID),
 		RepoUrl:            view.URL,
 		DefaultBranch:      branch,
 		CuratorAgentID:     repoConfig.CuratorAgentID,
-		TemplateVersion:    repoConfig.TemplateVersion,
+		TemplateVersion:    knowledge.TemplateVersion,
 		Mode:               repoConfig.Mode,
 		Enabled:            repoConfig.Enabled,
 		LastBootstrappedAt: repoConfig.LastBootstrappedAt,
@@ -602,14 +608,25 @@ func (h *Handler) CreateWorkspaceKnowledgeRepoFromGitHub(w http.ResponseWriter, 
 		}
 	}
 
+	bootstrappedRepo, err := h.Queries.MarkKnowledgeRepoBootstrapped(r.Context(), db.MarkKnowledgeRepoBootstrappedParams{
+		WorkspaceID:     parseUUID(workspaceID),
+		TemplateVersion: knowledge.TemplateVersion,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to mark knowledge repo as bootstrapped")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
-		"knowledge_repo": knowledgeRepoToResponse(updatedRepo),
+		"knowledge_repo": knowledgeRepoToResponse(bootstrappedRepo),
 		"github_repo": map[string]any{
 			"name_with_owner": view.NameWithOwner,
 			"url":             view.URL,
 			"default_branch":  branch,
 			"visibility":      visibility,
 		},
+		"template_version": knowledge.TemplateVersion,
+		"entries":          entries,
 	})
 }
 
