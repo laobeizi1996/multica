@@ -75,6 +75,22 @@ func buildMetaSkillContent(provider string, ctx TaskContextForEnv) string {
 	}
 
 	b.WriteString("### Workflow\n\n")
+	knowledgePath := strings.TrimSpace(ctx.KnowledgeContextPath)
+	if knowledgePath == "" {
+		knowledgePath = ".agent_context/knowledge_context.md"
+	}
+	b.WriteString("**Knowledge-first gate (mandatory):**\n")
+	fmt.Fprintf(&b, "1. Read `%s` before any implementation or status changes.\n", knowledgePath)
+	b.WriteString("2. Use it to ground your approach and cite relevant file paths in your final output.\n")
+	if ctx.KnowledgeHitCount == 0 {
+		reason := strings.TrimSpace(ctx.KnowledgeNoMatchReason)
+		if reason == "" {
+			reason = "lookup completed without relevant matches"
+		}
+		fmt.Fprintf(&b, "3. This task has zero matches; explicitly state this reason in your output: \"%s\".\n\n", reason)
+	} else {
+		fmt.Fprintf(&b, "3. This task has %d match(es); reference at least one matched path when reporting results.\n\n", ctx.KnowledgeHitCount)
+	}
 
 	if ctx.TriggerCommentID != "" {
 		// Comment-triggered: focus on reading and replying

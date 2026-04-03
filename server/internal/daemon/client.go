@@ -180,6 +180,15 @@ type WorkspaceInfo struct {
 	Name string `json:"name"`
 }
 
+type WorkspaceKnowledgeRepo struct {
+	WorkspaceID     string `json:"workspace_id"`
+	RepoURL         string `json:"repo_url"`
+	DefaultBranch   string `json:"default_branch"`
+	TemplateVersion string `json:"template_version"`
+	Mode            string `json:"mode"`
+	Enabled         bool   `json:"enabled"`
+}
+
 // ListWorkspaces fetches all workspaces the authenticated user belongs to.
 func (c *Client) ListWorkspaces(ctx context.Context) ([]WorkspaceInfo, error) {
 	var workspaces []WorkspaceInfo
@@ -187,6 +196,14 @@ func (c *Client) ListWorkspaces(ctx context.Context) ([]WorkspaceInfo, error) {
 		return nil, err
 	}
 	return workspaces, nil
+}
+
+func (c *Client) GetWorkspaceKnowledgeRepo(ctx context.Context, workspaceID string) (*WorkspaceKnowledgeRepo, error) {
+	var repo WorkspaceKnowledgeRepo
+	if err := c.getJSON(ctx, fmt.Sprintf("/api/workspaces/%s/knowledge-repo", workspaceID), &repo); err != nil {
+		return nil, err
+	}
+	return &repo, nil
 }
 
 func (c *Client) Deregister(ctx context.Context, runtimeIDs []string) error {

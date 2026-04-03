@@ -249,6 +249,17 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	// Include workspace ID and repos so the daemon can set up worktrees.
 	if issue, err := h.Queries.GetIssue(r.Context(), task.IssueID); err == nil {
 		resp.WorkspaceID = uuidToString(issue.WorkspaceID)
+		resp.IssueTitle = issue.Title
+		resp.IssueDescription = textToPtr(issue.Description)
+		if comments, cErr := h.Queries.ListComments(r.Context(), db.ListCommentsParams{
+			IssueID:     issue.ID,
+			WorkspaceID: issue.WorkspaceID,
+		}); cErr == nil && len(comments) > 0 {
+			last := comments[len(comments)-1]
+			if strings.TrimSpace(last.Content) != "" {
+				resp.LatestComment = &last.Content
+			}
+		}
 		if ws, err := h.Queries.GetWorkspace(r.Context(), issue.WorkspaceID); err == nil && ws.Repos != nil {
 			var repos []RepoData
 			if json.Unmarshal(ws.Repos, &repos) == nil && len(repos) > 0 {

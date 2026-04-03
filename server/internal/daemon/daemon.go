@@ -15,6 +15,7 @@ import (
 	"github.com/multica-ai/multica/server/internal/daemon/execenv"
 	"github.com/multica-ai/multica/server/internal/daemon/repocache"
 	"github.com/multica-ai/multica/server/internal/daemon/usage"
+	"github.com/multica-ai/multica/server/internal/knowledge"
 	"github.com/multica-ai/multica/server/pkg/agent"
 )
 
@@ -900,6 +901,46 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, taskLo
 		}
 	}
 
+	lookupStartedAt := time.Now()
+	taskLog.Info("knowledge lookup started", "issue_id", task.IssueID, "workspace_id", task.WorkspaceID)
+
+	lookupResult, err := d.lookupKnowledge(ctx, task, env)
+	if err != nil {
+		taskLog.Warn("knowledge lookup failed",
+			"issue_id", task.IssueID,
+			"workspace_id", task.WorkspaceID,
+			"duration_ms", time.Since(lookupStartedAt).Milliseconds(),
+			"error", err,
+		)
+		return TaskResult{}, fmt.Errorf("knowledge lookup failed: %w", err)
+	}
+
+	contextPath, err := execenv.WriteKnowledgeContextFile(env.WorkDir, *lookupResult)
+	if err != nil {
+		taskLog.Warn("knowledge context write failed",
+			"issue_id", task.IssueID,
+			"workspace_id", task.WorkspaceID,
+			"error", err,
+		)
+		return TaskResult{}, fmt.Errorf("write knowledge context failed: %w", err)
+	}
+	taskCtx.KnowledgeContextPath = contextPath
+	taskCtx.KnowledgeHitCount = lookupResult.HitCount
+	taskCtx.KnowledgeNoMatchReason = lookupResult.NoMatchReason
+
+	topPaths := make([]string, 0, len(lookupResult.Matches))
+	for _, match := range lookupResult.Matches {
+		topPaths = append(topPaths, match.Path)
+	}
+	taskLog.Info("knowledge lookup succeeded",
+		"issue_id", task.IssueID,
+		"workspace_id", task.WorkspaceID,
+		"duration_ms", lookupResult.DurationMS,
+		"hit_count", lookupResult.HitCount,
+		"no_match_reason", lookupResult.NoMatchReason,
+		"top_paths", topPaths,
+	)
+
 	// Inject runtime-specific config (meta skill) so the agent discovers .agent_context/.
 	if err := execenv.InjectRuntimeConfig(env.WorkDir, provider, taskCtx); err != nil {
 		d.logger.Warn("execenv: inject runtime config failed (non-fatal)", "error", err)
@@ -1117,6 +1158,40 @@ func (d *Daemon) runTask(ctx context.Context, task Task, provider string, taskLo
 		}
 		return TaskResult{Status: "blocked", Comment: errMsg}, nil
 	}
+}
+
+func (d *Daemon) lookupKnowledge(ctx context.Context, task Task, env *execenv.Environment) (*knowledge.LookupResult, error) {
+	repoConfig, err := d.client.GetWorkspaceKnowledgeRepo(ctx, task.WorkspaceID)
+	if err != nil {
+		return nil, fmt.Errorf("load knowledge repository config: %w", err)
+	}
+	if !repoConfig.Enabled {
+		return nil, fmt.Errorf("knowledge repository automation is disabled for workspace %s", task.WorkspaceID)
+	}
+	repoURL := strings.TrimSpace(repoConfig.RepoURL)
+	if repoURL == "" {
+		return nil, fmt.Errorf("knowledge repository URL is not configured")
+	}
+
+	queryTexts := []string{task.IssueTitle, task.IssueDescription, task.LatestComment}
+	if strings.TrimSpace(task.TriggerCommentID) != "" {
+		queryTexts = append(queryTexts, task.TriggerCommentID)
+	}
+
+	repoDir := filepath.Join(env.RootDir, "knowledge-repo")
+	result, err := knowledge.LookupKnowledge(ctx, knowledge.LookupInput{
+		WorkspaceID:   task.WorkspaceID,
+		IssueID:       task.IssueID,
+		RepoURL:       repoURL,
+		DefaultBranch: repoConfig.DefaultBranch,
+		QueryTexts:    queryTexts,
+		RepoDir:       repoDir,
+		TopK:          knowledge.DefaultLookupTopK,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // repoDataToInfo converts daemon RepoData to repocache RepoInfo.

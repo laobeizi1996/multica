@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/multica-ai/multica/server/internal/knowledge"
 )
 
 func testLogger() *slog.Logger {
@@ -571,5 +573,46 @@ func TestEnsureSymlinkRepairsBrokenLink(t *testing.T) {
 	data, _ := os.ReadFile(dst)
 	if string(data) != "real" {
 		t.Errorf("content = %q, want %q", data, "real")
+	}
+}
+
+func TestWriteKnowledgeContextFile(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	path, err := WriteKnowledgeContextFile(workDir, knowledge.LookupResult{
+		WorkspaceID:   "ws-1",
+		IssueID:       "issue-1",
+		RepoURL:       "https://github.com/acme/knowledge",
+		DefaultBranch: "main",
+		QueryTerms:    []string{"login", "redirect"},
+		Matches: []knowledge.KnowledgeMatch{
+			{Path: "docs/design-docs/design-doc1.md", Line: 12, Snippet: "Handle login redirect", Score: 98, Reason: "priority-index"},
+		},
+		HitCount:   1,
+		DurationMS: 25,
+		LookedUpAt: "2026-01-02T03:04:05Z",
+	})
+	if err != nil {
+		t.Fatalf("WriteKnowledgeContextFile failed: %v", err)
+	}
+	if path != ".agent_context/knowledge_context.md" {
+		t.Fatalf("unexpected path: %s", path)
+	}
+
+	content, err := os.ReadFile(filepath.Join(workDir, path))
+	if err != nil {
+		t.Fatalf("read knowledge_context.md: %v", err)
+	}
+	s := string(content)
+	for _, want := range []string{
+		"# Knowledge Lookup Context",
+		"- Hit count: 1",
+		"`docs/design-docs/design-doc1.md:12`",
+		"Handle login redirect",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("knowledge context missing %q", want)
+		}
 	}
 }

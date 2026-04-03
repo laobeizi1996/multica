@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/multica-ai/multica/server/internal/knowledge"
 )
 
 // writeContextFiles renders and writes .agent_context/issue_context.md and
@@ -133,4 +135,57 @@ func renderIssueContext(provider string, ctx TaskContextForEnv) string {
 	}
 
 	return b.String()
+}
+
+// WriteKnowledgeContextFile writes lookup results into .agent_context/knowledge_context.md
+// and returns its relative path from the workdir.
+func WriteKnowledgeContextFile(workDir string, result knowledge.LookupResult) (string, error) {
+	contextDir := filepath.Join(workDir, ".agent_context")
+	if err := os.MkdirAll(contextDir, 0o755); err != nil {
+		return "", fmt.Errorf("create .agent_context dir: %w", err)
+	}
+
+	relPath := ".agent_context/knowledge_context.md"
+	absPath := filepath.Join(workDir, relPath)
+
+	var b strings.Builder
+	b.WriteString("# Knowledge Lookup Context\n\n")
+	fmt.Fprintf(&b, "- Looked up at: %s\n", result.LookedUpAt)
+	fmt.Fprintf(&b, "- Workspace: %s\n", result.WorkspaceID)
+	fmt.Fprintf(&b, "- Issue: %s\n", result.IssueID)
+	fmt.Fprintf(&b, "- Repository: %s\n", result.RepoURL)
+	fmt.Fprintf(&b, "- Branch: %s\n", result.DefaultBranch)
+	fmt.Fprintf(&b, "- Duration (ms): %d\n", result.DurationMS)
+	fmt.Fprintf(&b, "- Hit count: %d\n\n", result.HitCount)
+
+	b.WriteString("## Query Terms\n\n")
+	if len(result.QueryTerms) == 0 {
+		b.WriteString("- (none)\n\n")
+	} else {
+		for _, term := range result.QueryTerms {
+			fmt.Fprintf(&b, "- `%s`\n", term)
+		}
+		b.WriteString("\n")
+	}
+
+	if result.HitCount == 0 {
+		b.WriteString("## Result\n\n")
+		if strings.TrimSpace(result.NoMatchReason) != "" {
+			fmt.Fprintf(&b, "No match found: %s\n", result.NoMatchReason)
+		} else {
+			b.WriteString("No match found.\n")
+		}
+	} else {
+		b.WriteString("## Matches\n\n")
+		for i, match := range result.Matches {
+			fmt.Fprintf(&b, "%d. `%s:%d` (score=%d, reason=%s)\n", i+1, match.Path, match.Line, match.Score, match.Reason)
+			fmt.Fprintf(&b, "   - %s\n", match.Snippet)
+		}
+	}
+
+	if err := os.WriteFile(absPath, []byte(b.String()), 0o644); err != nil {
+		return "", fmt.Errorf("write knowledge_context.md: %w", err)
+	}
+
+	return relPath, nil
 }
