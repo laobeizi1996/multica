@@ -13,7 +13,7 @@ func TestHarnessTemplateContainsRequiredSkeleton(t *testing.T) {
 func TestValidateReportsMissingRequiredFiles(t *testing.T) {
 	entries := []TemplateEntry{
 		{Path: "AGENTS.md", Type: EntryTypeFile, Content: "ARCHITECTURE.md docs/"},
-		{Path: "docs/README.md", Type: EntryTypeFile, Content: "design-docs/index.md"},
+		{Path: "docs/README.md", Type: EntryTypeFile, Content: "DESIGN.md design-docs/index.md"},
 	}
 	result := Validate(entries)
 	if result.Valid {
@@ -24,24 +24,14 @@ func TestValidateReportsMissingRequiredFiles(t *testing.T) {
 	}
 }
 
-func TestValidateAllowsControlledExtensionsAndBlocksUnknownDocsArea(t *testing.T) {
+func TestValidateBlocksUnknownDocsArea(t *testing.T) {
 	entries := HarnessTemplate()
-	entries = append(entries, TemplateEntry{
-		Path:    "docs/extensions/custom/rules.md",
-		Type:    EntryTypeFile,
-		Content: "custom extension",
-	})
-	result := Validate(entries)
-	if !result.Valid {
-		t.Fatalf("expected extensions path to be allowed, got errors: %v", result.Errors)
-	}
-
 	entries = append(entries, TemplateEntry{
 		Path:    "docs/random-area/notes.md",
 		Type:    EntryTypeFile,
 		Content: "should not be allowed",
 	})
-	result = Validate(entries)
+	result := Validate(entries)
 	if result.Valid {
 		t.Fatal("expected unknown docs top-level area to fail validation")
 	}

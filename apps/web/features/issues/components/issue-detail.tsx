@@ -616,7 +616,7 @@ export function IssueDetail({ issueId, onDelete, defaultSidebarOpen = true, layo
             key={id}
             defaultValue={issue.description || ""}
             placeholder="Add description..."
-            onUpdate={(md) => handleUpdateField({ description: md || undefined })}
+            onUpdate={(md) => handleUpdateField({ description: md.trim() ? md : "" })}
             onUploadFile={handleDescriptionUpload}
             debounceMs={1500}
             className="mt-5"

@@ -1,12 +1,18 @@
 package handler
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -181,10 +187,24 @@ type KnowledgeRepoBootstrapResponse struct {
 
 func (h *Handler) BootstrapWorkspaceKnowledgeRepo(w http.ResponseWriter, r *http.Request) {
 	workspaceID := workspaceIDFromURL(r, "id")
-	if _, err := h.getOrInitKnowledgeRepo(r, workspaceID); err != nil {
+	repoConfig, err := h.getOrInitKnowledgeRepo(r, workspaceID)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load knowledge repo config")
 		return
 	}
+
+	entries := knowledge.HarnessTemplate()
+	if strings.TrimSpace(repoConfig.RepoUrl) != "" {
+		if _, err := exec.LookPath("gh"); err != nil {
+			writeError(w, http.StatusBadRequest, "gh CLI not found on server host")
+			return
+		}
+		if err := writeHarnessTemplateToRepo(r.Context(), repoConfig.RepoUrl, repoConfig.DefaultBranch, entries); err != nil {
+			writeError(w, http.StatusBadRequest, "failed to initialize knowledge repository: "+err.Error())
+			return
+		}
+	}
+
 	repo, err := h.Queries.MarkKnowledgeRepoBootstrapped(r.Context(), db.MarkKnowledgeRepoBootstrappedParams{
 		WorkspaceID:     parseUUID(workspaceID),
 		TemplateVersion: knowledge.TemplateVersion,
@@ -197,7 +217,7 @@ func (h *Handler) BootstrapWorkspaceKnowledgeRepo(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, map[string]any{
 		"knowledge_repo":   knowledgeRepoToResponse(repo),
 		"template_version": knowledge.TemplateVersion,
-		"entries":          knowledge.HarnessTemplate(),
+		"entries":          entries,
 	})
 }
 
@@ -248,6 +268,52 @@ type workspaceRepoItem struct {
 	Description string `json:"description"`
 }
 
+type ghRepoContentResponse struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Type        string `json:"type"`
+	Size        int64  `json:"size"`
+	SHA         string `json:"sha"`
+	Content     string `json:"content"`
+	Encoding    string `json:"encoding"`
+	HTMLURL     string `json:"html_url"`
+	DownloadURL string `json:"download_url"`
+}
+
+type KnowledgeRepoEntry struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Type        string `json:"type"`
+	Size        int64  `json:"size"`
+	SHA         string `json:"sha"`
+	HTMLURL     string `json:"html_url,omitempty"`
+	DownloadURL string `json:"download_url,omitempty"`
+}
+
+type ListWorkspaceKnowledgeRepoContentsResponse struct {
+	Path          string               `json:"path"`
+	DefaultBranch string               `json:"default_branch"`
+	Entries       []KnowledgeRepoEntry `json:"entries"`
+}
+
+type GetWorkspaceKnowledgeRepoFileResponse struct {
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	SHA         string `json:"sha"`
+	Size        int64  `json:"size"`
+	Encoding    string `json:"encoding"`
+	Content     string `json:"content"`
+	HTMLURL     string `json:"html_url,omitempty"`
+	DownloadURL string `json:"download_url,omitempty"`
+}
+
+type UpsertWorkspaceKnowledgeRepoFileRequest struct {
+	Path    string  `json:"path"`
+	Content string  `json:"content"`
+	Message *string `json:"message"`
+	SHA     *string `json:"sha"`
+}
+
 func normalizeGitHubRepoName(v string) string {
 	name := strings.ToLower(strings.TrimSpace(v))
 	name = githubRepoNameSanitizer.ReplaceAllString(name, "-")
@@ -268,6 +334,146 @@ func trimCommandOutput(out []byte) string {
 		return text
 	}
 	return text[:maxLen] + "..."
+}
+
+func writeHarnessTemplateToRepo(ctx context.Context, repoURL string, defaultBranch string, entries []knowledge.TemplateEntry) error {
+	if _, err := exec.LookPath("git"); err != nil {
+		return fmt.Errorf("git CLI not found on server host")
+	}
+
+	owner, repo, err := parseGitHubRepoURL(repoURL)
+	if err != nil {
+		return err
+	}
+	repoName := owner + "/" + repo
+
+	tempDir, err := os.MkdirTemp("", "multica-knowledge-bootstrap-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary directory")
+	}
+	defer os.RemoveAll(tempDir)
+
+	if out, err := exec.CommandContext(ctx, "gh", "repo", "clone", repoName, tempDir, "--", "-q").CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to clone knowledge repository: %s", trimCommandOutput(out))
+	}
+
+	branch := strings.TrimSpace(defaultBranch)
+	if branch == "" {
+		branch = "main"
+	}
+	if out, err := exec.CommandContext(ctx, "git", "-C", tempDir, "checkout", "-B", branch).CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to checkout branch %q: %s", branch, trimCommandOutput(out))
+	}
+
+	for _, entry := range entries {
+		cleanPath := strings.TrimSpace(filepath.Clean(entry.Path))
+		if cleanPath == "" || cleanPath == "." || cleanPath == string(filepath.Separator) {
+			continue
+		}
+		if strings.HasPrefix(cleanPath, "..") || filepath.IsAbs(cleanPath) {
+			return fmt.Errorf("unsafe template path: %s", entry.Path)
+		}
+
+		target := filepath.Join(tempDir, cleanPath)
+		if entry.Type == knowledge.EntryTypeDir {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return fmt.Errorf("failed to create directory %s", cleanPath)
+			}
+			continue
+		}
+
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return fmt.Errorf("failed to create parent directory for %s", cleanPath)
+		}
+		if err := os.WriteFile(target, []byte(entry.Content), 0o644); err != nil {
+			return fmt.Errorf("failed to write file %s", cleanPath)
+		}
+	}
+
+	if out, err := exec.CommandContext(ctx, "git", "-C", tempDir, "add", ".").CombinedOutput(); err != nil {
+		return fmt.Errorf("git add failed: %s", trimCommandOutput(out))
+	}
+
+	diffErr := exec.CommandContext(ctx, "git", "-C", tempDir, "diff", "--cached", "--quiet").Run()
+	if diffErr == nil {
+		return nil
+	}
+
+	if out, err := exec.CommandContext(
+		ctx,
+		"git",
+		"-C", tempDir,
+		"-c", "user.name=multica-bot",
+		"-c", "user.email=bot@multica.local",
+		"commit",
+		"-m", "docs: bootstrap harness knowledge skeleton",
+	).CombinedOutput(); err != nil {
+		return fmt.Errorf("git commit failed: %s", trimCommandOutput(out))
+	}
+
+	if out, err := exec.CommandContext(ctx, "git", "-C", tempDir, "push", "-u", "origin", branch).CombinedOutput(); err != nil {
+		return fmt.Errorf("git push failed: %s", trimCommandOutput(out))
+	}
+
+	return nil
+}
+
+func parseGitHubRepoURL(raw string) (owner string, repo string, err error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", "", fmt.Errorf("knowledge repository URL is not configured")
+	}
+
+	if strings.HasPrefix(trimmed, "git@github.com:") {
+		trimmed = "https://github.com/" + strings.TrimPrefix(trimmed, "git@github.com:")
+	} else if strings.HasPrefix(trimmed, "github.com/") {
+		trimmed = "https://" + trimmed
+	}
+
+	parsed, parseErr := neturl.Parse(trimmed)
+	if parseErr != nil {
+		return "", "", fmt.Errorf("invalid knowledge repository URL")
+	}
+	if !strings.EqualFold(parsed.Hostname(), "github.com") {
+		return "", "", fmt.Errorf("knowledge repository must be hosted on github.com")
+	}
+
+	path := strings.Trim(parsed.Path, "/")
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("knowledge repository URL must include owner and repo")
+	}
+
+	owner = strings.TrimSpace(parts[0])
+	repo = strings.TrimSuffix(strings.TrimSpace(parts[1]), ".git")
+	if owner == "" || repo == "" {
+		return "", "", fmt.Errorf("knowledge repository URL must include owner and repo")
+	}
+
+	return owner, repo, nil
+}
+
+func buildGitHubContentsAPIPath(owner string, repo string, filePath string, ref string) string {
+	base := fmt.Sprintf("repos/%s/%s/contents", owner, repo)
+	cleanPath := strings.Trim(strings.TrimSpace(filePath), "/")
+	if cleanPath != "" {
+		segments := strings.Split(cleanPath, "/")
+		escaped := make([]string, 0, len(segments))
+		for _, segment := range segments {
+			part := strings.TrimSpace(segment)
+			if part == "" {
+				continue
+			}
+			escaped = append(escaped, neturl.PathEscape(part))
+		}
+		if len(escaped) > 0 {
+			base += "/" + strings.Join(escaped, "/")
+		}
+	}
+	if strings.TrimSpace(ref) != "" {
+		base += "?ref=" + neturl.QueryEscape(strings.TrimSpace(ref))
+	}
+	return base
 }
 
 func (h *Handler) CreateWorkspaceKnowledgeRepoFromGitHub(w http.ResponseWriter, r *http.Request) {
@@ -404,5 +610,225 @@ func (h *Handler) CreateWorkspaceKnowledgeRepoFromGitHub(w http.ResponseWriter, 
 			"default_branch":  branch,
 			"visibility":      visibility,
 		},
+	})
+}
+
+func (h *Handler) ListWorkspaceKnowledgeRepoContents(w http.ResponseWriter, r *http.Request) {
+	workspaceID := workspaceIDFromURL(r, "id")
+	if _, err := exec.LookPath("gh"); err != nil {
+		writeError(w, http.StatusBadRequest, "gh CLI not found on server host")
+		return
+	}
+
+	repoConfig, err := h.getOrInitKnowledgeRepo(r, workspaceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load knowledge repo config")
+		return
+	}
+	owner, repo, err := parseGitHubRepoURL(repoConfig.RepoUrl)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	requestPath := strings.Trim(strings.TrimSpace(r.URL.Query().Get("path")), "/")
+	apiPath := buildGitHubContentsAPIPath(owner, repo, requestPath, repoConfig.DefaultBranch)
+	out, cmdErr := exec.Command("gh", "api", "-H", "Accept: application/vnd.github+json", apiPath).CombinedOutput()
+	if cmdErr != nil {
+		writeError(w, http.StatusBadRequest, "failed to list knowledge repository contents: "+trimCommandOutput(out))
+		return
+	}
+
+	trimmed := strings.TrimSpace(string(out))
+	if strings.HasPrefix(trimmed, "{") {
+		var file ghRepoContentResponse
+		if err := json.Unmarshal(out, &file); err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to parse knowledge repository contents")
+			return
+		}
+		if file.Type == "file" {
+			writeError(w, http.StatusBadRequest, "path points to a file; use the file endpoint")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "unexpected GitHub response shape")
+		return
+	}
+
+	var items []ghRepoContentResponse
+	if err := json.Unmarshal(out, &items); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to parse knowledge repository contents")
+		return
+	}
+
+	entries := make([]KnowledgeRepoEntry, 0, len(items))
+	for _, item := range items {
+		if item.Type != "dir" && item.Type != "file" {
+			continue
+		}
+		entries = append(entries, KnowledgeRepoEntry{
+			Name:        item.Name,
+			Path:        item.Path,
+			Type:        item.Type,
+			Size:        item.Size,
+			SHA:         item.SHA,
+			HTMLURL:     item.HTMLURL,
+			DownloadURL: item.DownloadURL,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Type != entries[j].Type {
+			return entries[i].Type == "dir"
+		}
+		return strings.ToLower(entries[i].Name) < strings.ToLower(entries[j].Name)
+	})
+
+	writeJSON(w, http.StatusOK, ListWorkspaceKnowledgeRepoContentsResponse{
+		Path:          requestPath,
+		DefaultBranch: repoConfig.DefaultBranch,
+		Entries:       entries,
+	})
+}
+
+func (h *Handler) GetWorkspaceKnowledgeRepoFile(w http.ResponseWriter, r *http.Request) {
+	workspaceID := workspaceIDFromURL(r, "id")
+	if _, err := exec.LookPath("gh"); err != nil {
+		writeError(w, http.StatusBadRequest, "gh CLI not found on server host")
+		return
+	}
+
+	repoPath := strings.Trim(strings.TrimSpace(r.URL.Query().Get("path")), "/")
+	if repoPath == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	repoConfig, err := h.getOrInitKnowledgeRepo(r, workspaceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load knowledge repo config")
+		return
+	}
+	owner, repo, err := parseGitHubRepoURL(repoConfig.RepoUrl)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	apiPath := buildGitHubContentsAPIPath(owner, repo, repoPath, repoConfig.DefaultBranch)
+	out, cmdErr := exec.Command("gh", "api", "-H", "Accept: application/vnd.github+json", apiPath).CombinedOutput()
+	if cmdErr != nil {
+		writeError(w, http.StatusBadRequest, "failed to load knowledge repository file: "+trimCommandOutput(out))
+		return
+	}
+
+	var file ghRepoContentResponse
+	if err := json.Unmarshal(out, &file); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to parse knowledge repository file")
+		return
+	}
+	if file.Type != "file" {
+		writeError(w, http.StatusBadRequest, "path is not a file")
+		return
+	}
+
+	content := strings.ReplaceAll(file.Content, "\n", "")
+	decodedContent := ""
+	if strings.EqualFold(strings.TrimSpace(file.Encoding), "base64") {
+		decoded, decodeErr := base64.StdEncoding.DecodeString(content)
+		if decodeErr != nil {
+			writeError(w, http.StatusInternalServerError, "failed to decode file content")
+			return
+		}
+		decodedContent = string(decoded)
+	} else {
+		decodedContent = content
+	}
+
+	writeJSON(w, http.StatusOK, GetWorkspaceKnowledgeRepoFileResponse{
+		Path:        file.Path,
+		Name:        file.Name,
+		SHA:         file.SHA,
+		Size:        file.Size,
+		Encoding:    file.Encoding,
+		Content:     decodedContent,
+		HTMLURL:     file.HTMLURL,
+		DownloadURL: file.DownloadURL,
+	})
+}
+
+func (h *Handler) UpsertWorkspaceKnowledgeRepoFile(w http.ResponseWriter, r *http.Request) {
+	workspaceID := workspaceIDFromURL(r, "id")
+	if _, err := exec.LookPath("gh"); err != nil {
+		writeError(w, http.StatusBadRequest, "gh CLI not found on server host")
+		return
+	}
+
+	var req UpsertWorkspaceKnowledgeRepoFileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	repoPath := strings.Trim(strings.TrimSpace(req.Path), "/")
+	if repoPath == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+
+	repoConfig, err := h.getOrInitKnowledgeRepo(r, workspaceID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load knowledge repo config")
+		return
+	}
+	owner, repo, err := parseGitHubRepoURL(repoConfig.RepoUrl)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	message := strings.TrimSpace(valueOrDefault(req.Message, "docs: update knowledge repository file"))
+	contentBase64 := base64.StdEncoding.EncodeToString([]byte(req.Content))
+	apiPath := buildGitHubContentsAPIPath(owner, repo, repoPath, "")
+	args := []string{
+		"api",
+		"--method", "PUT",
+		"-H", "Accept: application/vnd.github+json",
+		apiPath,
+		"-f", "message=" + message,
+		"-f", "content=" + contentBase64,
+		"-f", "branch=" + repoConfig.DefaultBranch,
+	}
+	if req.SHA != nil && strings.TrimSpace(*req.SHA) != "" {
+		args = append(args, "-f", "sha="+strings.TrimSpace(*req.SHA))
+	}
+
+	out, cmdErr := exec.Command("gh", args...).CombinedOutput()
+	if cmdErr != nil {
+		writeError(w, http.StatusBadRequest, "failed to save knowledge repository file: "+trimCommandOutput(out))
+		return
+	}
+
+	var result struct {
+		Content struct {
+			Path string `json:"path"`
+			SHA  string `json:"sha"`
+			Size int64  `json:"size"`
+		} `json:"content"`
+		Commit struct {
+			HTMLURL string `json:"html_url"`
+			SHA     string `json:"sha"`
+		} `json:"commit"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to parse knowledge repository update result")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path":           result.Content.Path,
+		"sha":            result.Content.SHA,
+		"size":           result.Content.Size,
+		"commit_sha":     result.Commit.SHA,
+		"commit_url":     result.Commit.HTMLURL,
+		"default_branch": repoConfig.DefaultBranch,
 	})
 }

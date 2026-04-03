@@ -127,6 +127,8 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 					r.Get("/members", h.ListMembersWithUser)
 					r.Post("/leave", h.LeaveWorkspace)
 					r.Get("/knowledge-repo", h.GetWorkspaceKnowledgeRepo)
+					r.Get("/knowledge-repo/contents", h.ListWorkspaceKnowledgeRepoContents)
+					r.Get("/knowledge-repo/file", h.GetWorkspaceKnowledgeRepoFile)
 					r.Post("/knowledge-repo/validate", h.ValidateWorkspaceKnowledgeRepo)
 					r.Get("/projects", h.ListProjects)
 					r.Get("/projects/tree", h.ListProjectTree)
@@ -142,6 +144,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 					r.Patch("/knowledge-repo", h.UpdateWorkspaceKnowledgeRepo)
 					r.Post("/knowledge-repo/bootstrap", h.BootstrapWorkspaceKnowledgeRepo)
 					r.Post("/knowledge-repo/create-github", h.CreateWorkspaceKnowledgeRepoFromGitHub)
+					r.Put("/knowledge-repo/file", h.UpsertWorkspaceKnowledgeRepoFile)
 					r.Post("/repos/create-github", h.CreateWorkspaceRepoFromGitHub)
 					r.Post("/projects", h.CreateProject)
 					r.Route("/projects/{projectId}", func(r chi.Router) {

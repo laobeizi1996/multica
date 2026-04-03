@@ -40,6 +40,9 @@ import type {
   TaskMessagePayload,
   Attachment,
   KnowledgeTemplateEntry,
+  KnowledgeRepoContentsResponse,
+  KnowledgeRepoFileResponse,
+  UpsertKnowledgeRepoFileResponse,
 } from "@/shared/types";
 import { type Logger, noopLogger } from "@/shared/logger";
 
@@ -510,6 +513,25 @@ export class ApiClient {
   }> {
     return this.fetch(`/api/workspaces/${workspaceId}/knowledge-repo/create-github`, {
       method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listWorkspaceKnowledgeRepoContents(workspaceId: string, path = ""): Promise<KnowledgeRepoContentsResponse> {
+    const query = path.trim() ? `?path=${encodeURIComponent(path.trim())}` : "";
+    return this.fetch(`/api/workspaces/${workspaceId}/knowledge-repo/contents${query}`);
+  }
+
+  async getWorkspaceKnowledgeRepoFile(workspaceId: string, path: string): Promise<KnowledgeRepoFileResponse> {
+    return this.fetch(`/api/workspaces/${workspaceId}/knowledge-repo/file?path=${encodeURIComponent(path.trim())}`);
+  }
+
+  async upsertWorkspaceKnowledgeRepoFile(
+    workspaceId: string,
+    data: { path: string; content: string; message?: string; sha?: string },
+  ): Promise<UpsertKnowledgeRepoFileResponse> {
+    return this.fetch(`/api/workspaces/${workspaceId}/knowledge-repo/file`, {
+      method: "PUT",
       body: JSON.stringify(data),
     });
   }

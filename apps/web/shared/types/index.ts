@@ -26,7 +26,14 @@ export type {
 } from "./agent";
 export type { Workspace, WorkspaceRepo, WorkspaceKnowledgeRepo, Member, MemberRole, User, MemberWithUser } from "./workspace";
 export type { Project, ProjectLabel, ProjectTreeNode } from "./project";
-export type { KnowledgeCaptureRun, KnowledgeTemplateEntry } from "./knowledge";
+export type {
+  KnowledgeCaptureRun,
+  KnowledgeTemplateEntry,
+  KnowledgeRepoEntry,
+  KnowledgeRepoContentsResponse,
+  KnowledgeRepoFileResponse,
+  UpsertKnowledgeRepoFileResponse,
+} from "./knowledge";
 export type { InboxItem, InboxSeverity, InboxItemType } from "./inbox";
 export type { Comment, CommentType, CommentAuthorType, Reaction } from "./comment";
 export type { TimelineEntry } from "./activity";
