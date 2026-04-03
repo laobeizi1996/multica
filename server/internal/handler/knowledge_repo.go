@@ -635,6 +635,14 @@ func (h *Handler) ListWorkspaceKnowledgeRepoContents(w http.ResponseWriter, r *h
 	apiPath := buildGitHubContentsAPIPath(owner, repo, requestPath, repoConfig.DefaultBranch)
 	out, cmdErr := exec.Command("gh", "api", "-H", "Accept: application/vnd.github+json", apiPath).CombinedOutput()
 	if cmdErr != nil {
+		if requestPath == "" && isGitHubEmptyRepoError(out) {
+			writeJSON(w, http.StatusOK, ListWorkspaceKnowledgeRepoContentsResponse{
+				Path:          requestPath,
+				DefaultBranch: repoConfig.DefaultBranch,
+				Entries:       []KnowledgeRepoEntry{},
+			})
+			return
+		}
 		writeError(w, http.StatusBadRequest, "failed to list knowledge repository contents: "+trimCommandOutput(out))
 		return
 	}
@@ -687,6 +695,11 @@ func (h *Handler) ListWorkspaceKnowledgeRepoContents(w http.ResponseWriter, r *h
 		DefaultBranch: repoConfig.DefaultBranch,
 		Entries:       entries,
 	})
+}
+
+func isGitHubEmptyRepoError(output []byte) bool {
+	normalized := strings.ToLower(strings.TrimSpace(string(output)))
+	return strings.Contains(normalized, "this repository is empty")
 }
 
 func (h *Handler) GetWorkspaceKnowledgeRepoFile(w http.ResponseWriter, r *http.Request) {
