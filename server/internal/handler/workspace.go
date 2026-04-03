@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"os/exec"
 	"regexp"
 	"strings"
 
@@ -275,6 +277,134 @@ func (h *Handler) UpdateWorkspace(w http.ResponseWriter, r *http.Request) {
 	resp := workspaceToResponse(ws)
 	resp.KnowledgeRepo = h.loadKnowledgeRepoResponse(r, id)
 	writeJSON(w, http.StatusOK, resp)
+}
+
+type CreateWorkspaceRepoFromGitHubRequest struct {
+	Owner               *string `json:"owner"`
+	RepoName            *string `json:"repo_name"`
+	Visibility          *string `json:"visibility"`
+	Description         *string `json:"description"`
+	AddToWorkspaceRepos *bool   `json:"add_to_workspace_repos"`
+}
+
+func (h *Handler) CreateWorkspaceRepoFromGitHub(w http.ResponseWriter, r *http.Request) {
+	workspaceID := workspaceIDFromURL(r, "id")
+	if _, err := exec.LookPath("gh"); err != nil {
+		writeError(w, http.StatusBadRequest, "gh CLI not found on server host")
+		return
+	}
+
+	var req CreateWorkspaceRepoFromGitHubRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	workspace, err := h.Queries.GetWorkspace(r.Context(), parseUUID(workspaceID))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "workspace not found")
+		return
+	}
+
+	owner := strings.TrimSpace(valueOrDefault(req.Owner, ""))
+	repoName := normalizeGitHubRepoName(valueOrDefault(req.RepoName, workspace.Slug))
+	visibility := strings.ToLower(strings.TrimSpace(valueOrDefault(req.Visibility, "private")))
+	description := strings.TrimSpace(valueOrDefault(req.Description, fmt.Sprintf("Repository for %s", workspace.Name)))
+	addToWorkspaceRepos := true
+	if req.AddToWorkspaceRepos != nil {
+		addToWorkspaceRepos = *req.AddToWorkspaceRepos
+	}
+
+	switch visibility {
+	case "private", "public", "internal":
+	default:
+		writeError(w, http.StatusBadRequest, "visibility must be one of: private, public, internal")
+		return
+	}
+
+	fullName := repoName
+	if owner != "" {
+		fullName = owner + "/" + repoName
+	}
+
+	createArgs := []string{
+		"repo", "create", fullName,
+		"--" + visibility,
+		"--description", description,
+		"--confirm",
+	}
+	if out, err := exec.Command("gh", createArgs...).CombinedOutput(); err != nil {
+		writeError(w, http.StatusBadRequest, "failed to create GitHub repo via gh: "+trimCommandOutput(out))
+		return
+	}
+
+	viewOut, err := exec.Command("gh", "repo", "view", fullName, "--json", "nameWithOwner,url,defaultBranchRef").CombinedOutput()
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "repo created but failed to read metadata from gh: "+trimCommandOutput(viewOut))
+		return
+	}
+
+	var view ghRepoViewResponse
+	if err := json.Unmarshal(viewOut, &view); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to parse gh repo metadata")
+		return
+	}
+	if strings.TrimSpace(view.URL) == "" {
+		writeError(w, http.StatusInternalServerError, "gh returned empty repo url")
+		return
+	}
+
+	if addToWorkspaceRepos {
+		repos := make([]workspaceRepoItem, 0)
+		if len(workspace.Repos) > 0 {
+			_ = json.Unmarshal(workspace.Repos, &repos)
+		}
+
+		exists := false
+		for _, item := range repos {
+			if strings.EqualFold(strings.TrimSpace(item.URL), strings.TrimSpace(view.URL)) {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			repos = append(repos, workspaceRepoItem{
+				URL:         view.URL,
+				Description: description,
+			})
+			reposJSON, _ := json.Marshal(repos)
+			if _, err := h.Queries.UpdateWorkspace(r.Context(), db.UpdateWorkspaceParams{
+				ID:    parseUUID(workspaceID),
+				Repos: reposJSON,
+			}); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to save workspace repositories")
+				return
+			}
+		}
+	}
+
+	updatedWorkspace, err := h.Queries.GetWorkspace(r.Context(), parseUUID(workspaceID))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to reload workspace")
+		return
+	}
+	resp := workspaceToResponse(updatedWorkspace)
+	resp.KnowledgeRepo = h.loadKnowledgeRepoResponse(r, workspaceID)
+
+	branch := strings.TrimSpace(view.DefaultBranchRef.Name)
+	if branch == "" {
+		branch = "main"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"workspace": resp,
+		"github_repo": map[string]any{
+			"name_with_owner": view.NameWithOwner,
+			"url":             view.URL,
+			"default_branch":  branch,
+			"visibility":      visibility,
+		},
+	})
 }
 
 func (h *Handler) ListMembers(w http.ResponseWriter, r *http.Request) {

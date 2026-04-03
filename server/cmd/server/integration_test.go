@@ -651,6 +651,48 @@ func TestWorkspacesThroughRouter(t *testing.T) {
 	}
 }
 
+func TestWorkspaceGitHubCreateRoutesReachable(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{
+			name: "generic workspace repo route",
+			path: "/api/workspaces/" + testWorkspaceID + "/repos/create-github",
+		},
+		{
+			name: "knowledge repo route",
+			path: "/api/workspaces/" + testWorkspaceID + "/knowledge-repo/create-github",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := authRequest(t, "POST", tc.path, map[string]any{
+				"visibility": "invalid",
+			})
+			defer resp.Body.Close()
+
+			if resp.StatusCode == http.StatusNotFound {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("expected route to be registered, got 404: %s", body)
+			}
+			if resp.StatusCode != http.StatusBadRequest {
+				body, _ := io.ReadAll(resp.Body)
+				t.Fatalf("expected 400 for invalid payload, got %d: %s", resp.StatusCode, body)
+			}
+
+			var result map[string]any
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if _, ok := result["error"]; !ok {
+				t.Fatalf("expected error field in response, got %#v", result)
+			}
+		})
+	}
+}
+
 // ---- Inbox through full router ----
 
 func TestInboxThroughRouter(t *testing.T) {

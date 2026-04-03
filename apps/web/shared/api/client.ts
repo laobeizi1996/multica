@@ -514,6 +514,30 @@ export class ApiClient {
     });
   }
 
+  async createWorkspaceRepoFromGitHub(
+    workspaceId: string,
+    data: {
+      owner?: string;
+      repo_name?: string;
+      visibility?: "private" | "public" | "internal";
+      description?: string;
+      add_to_workspace_repos?: boolean;
+    },
+  ): Promise<{
+    workspace: Workspace;
+    github_repo: {
+      name_with_owner: string;
+      url: string;
+      default_branch: string;
+      visibility: "private" | "public" | "internal";
+    };
+  }> {
+    return this.fetch(`/api/workspaces/${workspaceId}/repos/create-github`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  }
+
   async listProjects(workspaceId: string): Promise<Project[]> {
     return this.fetch(`/api/workspaces/${workspaceId}/projects`);
   }

@@ -142,6 +142,7 @@ func NewRouter(pool *pgxpool.Pool, hub *realtime.Hub, bus *events.Bus) chi.Route
 					r.Patch("/knowledge-repo", h.UpdateWorkspaceKnowledgeRepo)
 					r.Post("/knowledge-repo/bootstrap", h.BootstrapWorkspaceKnowledgeRepo)
 					r.Post("/knowledge-repo/create-github", h.CreateWorkspaceKnowledgeRepoFromGitHub)
+					r.Post("/repos/create-github", h.CreateWorkspaceRepoFromGitHub)
 					r.Post("/projects", h.CreateProject)
 					r.Route("/projects/{projectId}", func(r chi.Router) {
 						r.Patch("/", h.UpdateProject)
